@@ -1,0 +1,22 @@
+# secrets — NEVER commit
+.env
+.env.*
+!.env.example
+
+# dependencies / build
+node_modules/
+dist/
+
+# database + migrations output
+data/
+*.db
+*.db-journal
+*.sqlite
+
+# logs / os
+*.log
+.DS_Store
+Thumbs.db
+
+# local tooling
+.claude/settings.local.json

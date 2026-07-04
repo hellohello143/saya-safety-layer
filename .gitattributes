@@ -1,0 +1,6 @@
+# Normalize line endings: store LF in the repo for all text files so the code is
+# identical on Windows, macOS, and the Linux Docker image.
+* text=auto eol=lf
+
+# Windows batch scripts must keep CRLF or they can misbehave.
+*.bat text eol=crlf

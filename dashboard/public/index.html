@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Agent Payment Safety Layer — Ops Dashboard</title>
+    <style>
+      :root { --bd: #d4d4d8; --mut: #71717a; --bg: #fafafa; --risk: #b45309; }
+      * { box-sizing: border-box; }
+      body { font-family: ui-sans-serif, system-ui, sans-serif; margin: 0; color: #18181b; background: var(--bg); }
+      header { padding: 1rem 1.5rem; background: #fff; border-bottom: 1px solid var(--bd); }
+      h1 { font-size: 1.15rem; margin: 0; }
+      .warn { background: #fff3cd; border: 1px solid #ffe08a; padding: .5rem .75rem; border-radius: 6px; font-size: .85rem; margin-top: .5rem; }
+      main { padding: 1.5rem; max-width: 1100px; margin: 0 auto; display: grid; gap: 1.5rem; }
+      section { background: #fff; border: 1px solid var(--bd); border-radius: 8px; padding: 1rem 1.25rem; }
+      h2 { font-size: .95rem; margin: 0 0 .75rem; }
+      label { display: block; font-size: .78rem; color: var(--mut); margin: .4rem 0 .1rem; }
+      input, select, button { font: inherit; padding: .4rem .5rem; border: 1px solid var(--bd); border-radius: 5px; }
+      .row { display: flex; flex-wrap: wrap; gap: .75rem; align-items: end; }
+      .row > div { flex: 1; min-width: 140px; }
+      button { background: #18181b; color: #fff; border-color: #18181b; cursor: pointer; }
+      button.secondary { background: #fff; color: #18181b; }
+      button.danger { background: #fff; color: #b91c1c; border-color: #e4a3a3; }
+      table { width: 100%; border-collapse: collapse; font-size: .82rem; }
+      th, td { text-align: left; padding: .4rem .5rem; border-bottom: 1px solid #efeff1; white-space: nowrap; }
+      th { color: var(--mut); font-weight: 600; }
+      .tablewrap { overflow-x: auto; }
+      .pill { font-size: .72rem; padding: .1rem .45rem; border-radius: 999px; border: 1px solid var(--bd); }
+      .active { background: #ecfdf5; color: #047857; border-color: #a7f3d0; }
+      .revoked, .rejected_onchain { background: #fef2f2; color: #b91c1c; border-color: #fecaca; }
+      .suspended, .expired, .rejected_policy { background: #fffbeb; color: #b45309; border-color: #fde68a; }
+      .approved { background: #ecfdf5; color: #047857; border-color: #a7f3d0; }
+      .risk { color: var(--risk); font-weight: 600; }
+      .mono { font-family: ui-monospace, monospace; font-size: .76rem; }
+      .msg { font-size: .8rem; margin-top: .5rem; min-height: 1rem; }
+      .err { color: #b91c1c; } .ok { color: #047857; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Agent Payment Safety Layer — Ops Dashboard</h1>
+      <div class="warn">
+        ⚠️ <strong>Unauthenticated internal ops tool — NOT safe to deploy publicly as-is.</strong>
+        Testnet (Base Sepolia) only. Anyone who can reach this port can create/revoke sessions.
+      </div>
+    </header>
+    <main>
+      <section>
+        <h2>Accounts <button class="secondary" onclick="loadAccounts()" style="float:right">Refresh</button></h2>
+        <div id="accounts" style="font-size:.85rem">loading…</div>
+      </section>
+
+      <section>
+        <h2>Create session key</h2>
+        <div class="row">
+          <div><label>Agent ID</label><input id="agentId" value="agent-1" /></div>
+          <div><label>Network</label><select id="network"></select></div>
+          <div><label>Max / tx (USDC) — SOFT</label><input id="perTx" value="0.05" /></div>
+          <div><label>Max total (USDC) — on-chain</label><input id="total" value="1.00" /></div>
+          <div><label>Expires at</label><input id="expiresAt" type="datetime-local" /></div>
+        </div>
+        <div id="netNote" style="font-size:.78rem;color:var(--risk);margin-top:.25rem"></div>
+        <div class="row" style="margin-top:.5rem">
+          <div style="flex:3"><label>Allowed recipients — SOFT (comma-separated; empty ⇒ higher_risk)</label><input id="recips" placeholder="0x… , 0x…" /></div>
+          <div style="flex:0 0 auto"><button onclick="createSession()">Issue on-chain</button></div>
+        </div>
+        <div class="msg" id="createMsg"></div>
+      </section>
+
+      <section>
+        <h2>Sessions <button class="secondary" onclick="loadSessions()" style="float:right">Refresh</button></h2>
+        <div class="tablewrap">
+          <table>
+            <thead><tr><th>ID</th><th>Agent</th><th>Network</th><th>Status</th><th>Per-tx</th><th>Total</th><th>Spent</th><th>Remaining</th><th>Flags</th><th>Ref</th><th></th></tr></thead>
+            <tbody id="sessions"></tbody>
+          </table>
+        </div>
+        <div class="msg" id="sessMsg"></div>
+      </section>
+
+      <section>
+        <h2>Audit log</h2>
+        <div class="row">
+          <div><label>Agent ID</label><input id="fAgent" /></div>
+          <div><label>Decision</label><select id="fDecision"><option value="">any</option><option>approved</option><option>rejected_policy</option><option>rejected_onchain</option></select></div>
+          <div><label>On-chain status</label><select id="fStatus"><option value="">any</option><option>pending</option><option>confirmed</option><option>failed</option></select></div>
+          <div style="flex:0 0 auto"><button class="secondary" onclick="loadAudit()">Filter</button></div>
+        </div>
+        <div class="tablewrap" style="margin-top:.5rem">
+          <table>
+            <thead><tr><th>Time</th><th>Agent</th><th>Session</th><th>Decision</th><th>Reason</th><th>Amount</th><th>Recipient</th><th>Flags</th><th>Tx</th><th>On-chain</th></tr></thead>
+            <tbody id="audit"></tbody>
+          </table>
+        </div>
+        <div class="msg" id="auditMsg"></div>
+      </section>
+    </main>
+
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const short = (s) => (s ? s.slice(0, 8) + '…' : '—');
+      const pill = (cls, txt) => `<span class="pill ${cls}">${txt}</span>`;
+
+      // Auth: send the stored bearer token; prompt for it only on a 401 (so a
+      // no-auth local backend never prompts).
+      let TOKEN = localStorage.getItem('safety_api_token') || '';
+      async function authFetch(url, opts = {}) {
+        const withAuth = (t) => ({
+          ...opts,
+          headers: { ...(opts.headers || {}), ...(t ? { authorization: 'Bearer ' + t } : {}) },
+        });
+        let res = await fetch(url, withAuth(TOKEN));
+        if (res.status === 401) {
+          TOKEN = (prompt('API token required (see API_TOKEN in .env or the setup output):') || '').trim();
+          if (TOKEN) {
+            localStorage.setItem('safety_api_token', TOKEN);
+            res = await fetch(url, withAuth(TOKEN));
+          }
+        }
+        return res;
+      }
+
+      function initExpiry() {
+        const d = new Date(Date.now() + 3600_000);
+        d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+        $('expiresAt').value = d.toISOString().slice(0, 16);
+      }
+
+      async function createSession() {
+        const msg = $('createMsg'); msg.textContent = 'issuing on-chain…'; msg.className = 'msg';
+        const recips = $('recips').value.split(',').map((s) => s.trim()).filter(Boolean);
+        const expiresAt = Math.floor(new Date($('expiresAt').value).getTime() / 1000);
+        try {
+          const res = await authFetch('/api/sessions', {
+            method: 'POST', headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ agentId: $('agentId').value, network: $('network').value, maxAmountPerTx: $('perTx').value, maxAmountTotal: $('total').value, expiresAt, allowedRecipients: recips }),
+          });
+          const j = await res.json();
+          if (!res.ok) throw new Error(j.message || JSON.stringify(j.issues || j));
+          msg.textContent = 'created ' + j.id + (j.higherRisk ? ' (higher_risk)' : ''); msg.className = 'msg ok';
+          loadSessions();
+        } catch (e) { msg.textContent = 'error: ' + e.message; msg.className = 'msg err'; }
+      }
+
+      async function revoke(id) {
+        if (!confirm('Revoke ' + id + ' on-chain? This is irreversible.')) return;
+        const msg = $('sessMsg'); msg.textContent = 'revoking on-chain…'; msg.className = 'msg';
+        try {
+          const res = await authFetch('/api/sessions/' + id + '/revoke', { method: 'POST' });
+          const j = await res.json();
+          if (!res.ok) throw new Error(j.message || JSON.stringify(j));
+          msg.textContent = 'revoked (tx ' + short(j.revokeTxHash) + ')'; msg.className = 'msg ok';
+          loadSessions();
+        } catch (e) { msg.textContent = 'error: ' + e.message; msg.className = 'msg err'; }
+      }
+
+      async function loadNetworks() {
+        try {
+          const nets = await (await authFetch('/api/networks')).json();
+          $('network').innerHTML = nets.map((n) => `<option value="${n.network}">${n.network}</option>`).join('');
+          $('network').onchange = showNetNote;
+          showNetNote();
+        } catch (e) { /* leave empty */ }
+      }
+      function showNetNote() {
+        const n = $('network').value || '';
+        $('netNote').textContent = n.startsWith('solana')
+          ? '⚠️ On Solana, expiresAt is SOFT-ONLY (enforced by this backend, not on-chain). Total cap + revocation are on-chain.'
+          : '';
+      }
+
+      async function loadAccounts() {
+        try {
+          const a = await (await authFetch('/api/accounts')).json();
+          if (a.error) throw new Error(a.message || a.error);
+          $('accounts').innerHTML = `
+            <div><strong>Treasury</strong> — fund this with test USDC (${a.network}): <span class="mono">${a.treasury}</span></div>
+            <div><strong>Spender</strong> — pulls funds: <span class="mono">${a.spender}</span></div>
+            <div style="margin-top:.35rem;color:#71717a">USDC <span class="mono">${a.usdcAddress}</span> · <a href="https://faucet.circle.com" target="_blank" rel="noopener">Circle faucet →</a></div>`;
+        } catch (e) {
+          $('accounts').innerHTML = '<span class="err">accounts unavailable (' + e.message + ') — check CDP creds</span>';
+        }
+      }
+
+      async function loadSessions() {
+        try {
+          const rows = await (await authFetch('/api/sessions')).json();
+          $('sessions').innerHTML = rows.map((s) => `<tr>
+            <td class="mono">${short(s.id)}</td><td>${s.agentId}</td>
+            <td>${s.network}${s.expiryEnforcedOnChain ? '' : ' <span class="risk" title="expiresAt is soft-only on Solana">expiry:soft</span>'}</td>
+            <td>${pill(s.status, s.status)}</td>
+            <td>${s.maxAmountPerTx}</td><td>${s.maxAmountTotal}</td><td>${s.cumulativeSpent}</td><td>${s.remainingBudget}</td>
+            <td>${s.higherRisk ? '<span class="risk">higher_risk</span> ' : ''}${s.flaggedForReview ? '<span class="risk">flagged</span>' : ''}</td>
+            <td class="mono">${short(s.permissionHash)}</td>
+            <td>${s.status === 'revoked' ? '' : `<button class="danger" onclick="revoke('${s.id}')">Revoke</button>`}</td>
+          </tr>`).join('') || '<tr><td colspan="11" style="color:#71717a">no sessions yet</td></tr>';
+        } catch (e) { $('sessMsg').textContent = 'error: ' + e.message; $('sessMsg').className = 'msg err'; }
+      }
+
+      async function loadAudit() {
+        const p = new URLSearchParams();
+        if ($('fAgent').value) p.set('agentId', $('fAgent').value);
+        if ($('fDecision').value) p.set('decision', $('fDecision').value);
+        if ($('fStatus').value) p.set('onchainStatus', $('fStatus').value);
+        try {
+          const rows = await (await authFetch('/api/audit?' + p.toString())).json();
+          $('audit').innerHTML = rows.map((r) => `<tr>
+            <td>${new Date(r.timestamp * 1000).toLocaleString()}</td><td>${r.agentId}</td>
+            <td class="mono">${short(r.sessionId)}</td>
+            <td>${pill(r.decision, r.decision)}</td><td>${r.reasonCode || '—'}</td>
+            <td>${r.requestedAmount ?? '—'}</td><td class="mono">${short(r.recipient)}</td>
+            <td>${(r.riskFlags || []).join(', ') || '—'}</td>
+            <td class="mono">${short(r.txHash)}</td><td>${r.onchainStatus || '—'}</td>
+          </tr>`).join('') || '<tr><td colspan="10" style="color:#71717a">no audit rows</td></tr>';
+        } catch (e) { $('auditMsg').textContent = 'error: ' + e.message; $('auditMsg').className = 'msg err'; }
+      }
+
+      initExpiry(); loadNetworks(); loadAccounts(); loadSessions(); loadAudit();
+      setInterval(() => { loadSessions(); loadAudit(); }, 8000);
+    </script>
+  </body>
+</html>
