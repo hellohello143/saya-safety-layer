@@ -18,8 +18,8 @@ import { getTreasury, getSpender, fundWithTestUsdc } from '../src/cdp/smartAccou
 import { usdcBalance } from '../src/cdp/onchain.js';
 import { baseUnitsToUsdc, usdcToBaseUnits } from '../src/money/usdc.js';
 
-const ok = (m: string) => console.log(`  ✓ ${m}`);
-const bad = (m: string) => console.error(`  ✗ ${m}`);
+const ok = (m: string) => console.log(`  [ok] ${m}`);
+const bad = (m: string) => console.error(`  [x]  ${m}`);
 
 async function main() {
   console.log('\n▶ AI Agent Payment Safety Layer — preflight\n');
@@ -50,7 +50,7 @@ async function main() {
   if (env.IS_TESTNET) {
     console.log(`      network: ${env.NETWORK} (testnet)`);
   } else {
-    console.log(`\n  ⚠️  NETWORK=${env.NETWORK} — MAINNET. Real funds. API auth is REQUIRED (and set);`);
+    console.log(`\n  WARNING: NETWORK=${env.NETWORK} — MAINNET. Real funds. API auth is REQUIRED (and set);`);
     console.log('      keep API_TOKEN secret, serve over TLS, and read the README "SECURITY" section.\n');
   }
 
@@ -149,7 +149,7 @@ async function main() {
     }
   }
 
-  console.log('\n✓ Preflight complete. Start it:  npm run dev   (or: docker compose up)\n');
+  console.log('\nPreflight complete. Start it:  npm run dev   (or: docker compose up)\n');
 }
 
 main().catch((err) => {

@@ -2,7 +2,7 @@
 // EVM_NETWORK + SOLANA_NETWORK each select a chain (or 'off'); USDC address/mint,
 // RPC, and chain follow from the selection. Solana defaults to devnet.
 //
-// ⚠️ NETWORK=base / SOLANA_NETWORK=solana mean REAL money. API auth is REQUIRED
+// WARNING: NETWORK=base / SOLANA_NETWORK=solana mean REAL money. API auth is REQUIRED
 // on mainnet (the server refuses to start without API_TOKEN) and several limits
 // are soft-enforced — read the README "Security & production readiness" first.
 

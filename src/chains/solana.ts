@@ -1,6 +1,6 @@
 // Solana chain adapter — wraps src/solana/session (SPL Token delegation).
 //
-// ⚠️ expiresAt is SOFT-ONLY on Solana (expiryEnforcedOnChain: false). The on-chain
+// IMPORTANT: expiresAt is SOFT-ONLY on Solana (expiryEnforcedOnChain: false). The on-chain
 // cap (delegated_amount) + revocation (Revoke) are real; expiry is enforced only
 // by the policy layer refusing to sign after it. Flagged everywhere.
 
@@ -84,7 +84,7 @@ export function makeSolanaAdapter(network: SolanaNetworkId): ChainAdapter {
         // On Solana "revoked" = delegate cleared (no delegate, or not our spender).
         isRevoked: s.found && (s.delegate === null || s.delegate !== session.spenderAddress),
         remainingAllowance: s.found ? baseUnitsToUsdc(s.delegatedAmount) : null,
-        expiryEnforcedOnChain: false, // 🔴 SOFT-ONLY on Solana
+        expiryEnforcedOnChain: false, // SOFT-ONLY on Solana
         raw: { delegate: s.delegate, delegatedAmount: s.delegatedAmount.toString() },
       };
     },

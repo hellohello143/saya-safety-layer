@@ -73,11 +73,11 @@ Answer in order; the first answer forks the whole design:
 
 | Param | EVM today | Solana expected (Path B) | Mechanism / gap |
 |---|---|---|---|
-| `maxAmountTotal` | ✅ on-chain | ✅ **on-chain** | SPL `Approve` amount decrements per delegated transfer; token program rejects beyond it |
-| `expiresAt` | ✅ on-chain | ⚠️ **SOFT-ONLY** | SPL delegation has no time bound → **a downgrade vs EVM**; per rule 5 flag loudly: code comments, `expiry_soft_only` risk flag on every Solana payment, dashboard badge, per-chain `TRUST_BOUNDARY.md`, README |
+| `maxAmountTotal` | on-chain | **on-chain** | SPL `Approve` amount decrements per delegated transfer; token program rejects beyond it |
+| `expiresAt` | on-chain | **SOFT-ONLY** | SPL delegation has no time bound → **a downgrade vs EVM**; per rule 5 flag loudly: code comments, `expiry_soft_only` risk flag on every Solana payment, dashboard badge, per-chain `TRUST_BOUNDARY.md`, README |
 | `maxAmountPerTx` | soft | soft | unchanged |
 | `allowedRecipients` | soft | soft | unchanged — but note the flow difference below |
-| Revocation | ✅ real (revoke userOp) | ✅ real | SPL `Revoke` instruction; record the tx signature; circuit breaker uses it |
+| Revocation | real (revoke userOp) | real | SPL `Revoke` instruction; record the tx signature; circuit breaker uses it |
 
 **Flow difference:** SPL delegation does **not** pin the payee to the delegate (unlike EVM
 `spend()`), so Solana payments are **single-hop**: the spender-as-delegate transfers USDC directly

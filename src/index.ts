@@ -40,7 +40,7 @@ async function main() {
   if (mainnets.length) {
     const bar = '='.repeat(74);
     console.warn(`\n${bar}`);
-    console.warn(`  ⚠️  RUNNING ON ${mainnets.join(' + ')} — REAL FUNDS.`);
+    console.warn(`  WARNING: RUNNING ON ${mainnets.join(' + ')} — REAL FUNDS.`);
     console.warn('  API auth is ON. Still soft-enforces per-tx + recipient limits (and expiry on');
     console.warn('  Solana). Keep the API_TOKEN secret. See README "SECURITY".');
     console.warn(`${bar}\n`);

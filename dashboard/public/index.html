@@ -40,8 +40,9 @@
     <header>
       <h1>Agent Payment Safety Layer — Ops Dashboard</h1>
       <div class="warn">
-        ⚠️ <strong>Unauthenticated internal ops tool — NOT safe to deploy publicly as-is.</strong>
-        Testnet (Base Sepolia) only. Anyone who can reach this port can create/revoke sessions.
+        <strong>Internal ops tool.</strong> API routes require the API token (you will be
+        prompted once). On mainnet this controls real funds — serve behind TLS and keep the
+        token secret.
       </div>
     </header>
     <main>
@@ -165,7 +166,7 @@
       function showNetNote() {
         const n = $('network').value || '';
         $('netNote').textContent = n.startsWith('solana')
-          ? '⚠️ On Solana, expiresAt is SOFT-ONLY (enforced by this backend, not on-chain). Total cap + revocation are on-chain.'
+          ? 'On Solana, expiresAt is SOFT-ONLY (enforced by this backend, not on-chain). Total cap + revocation are on-chain.'
           : '';
       }
 

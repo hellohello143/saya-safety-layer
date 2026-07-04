@@ -70,14 +70,14 @@ One row per parameter. **Brutally honest.** The single most important line is `e
 
 | Parameter | EVM today | Solana (Path B) | On-chain mechanism — or the gap | Confidence |
 |---|---|---|---|---|
-| **`maxAmountTotal`** | ✅ on-chain (`allowance` under single-window config; contract reverts `ExceededSpendPermission`) | ✅ **on-chain — for the active approval** | SPL `Approve` sets `delegated_amount`. In `process_transfer`, when the signer is the delegate, the token program **rejects** any transfer with `delegated_amount < amount` (`TokenError::InsufficientFunds`) and **decrements** `delegated_amount` per transfer, auto-clearing the delegate at zero. A real, program-enforced, monotonically-decreasing cap. **Caveat:** it is a *per-approval remaining allowance*, not a lifetime accumulator — a new `Approve` **overwrites** it. Our model (a) sidesteps this by approving exactly once for the lifetime total and never re-approving (see § 4). | **High** — verified from `processor.rs` (`solana-program/token`, `main`) and the installed `token.d.ts` (single scalar `delegatedAmount: bigint`). |
-| **`expiresAt`** | ✅ on-chain (`SpendPermission.end`; every `spend()` reverts once `now ≥ end`) | 🔴 **SOFT-ONLY — DOWNGRADE vs EVM** | **NONE.** The SPL `Account` struct has **no** slot / timestamp / expiry / duration field anywhere (fields are exactly: `mint, owner, amount, delegate, state, is_native, delegated_amount, close_authority`). `process_approve` / `process_transfer` reference no `Clock` / slot / `unix_timestamp`. An **exhaustive** scan of **all** Token-2022 extensions found **none** that adds a time-bounded or expiring delegation — "Permanent delegate" is the *opposite* (unlimited, perpetual, uncapped). A delegation "persists indefinitely until explicitly revoked or depleted through transfers." So expiry can only be enforced **off-chain** by (a) the backend refusing to sign/submit after `expiresAt`, **and/or** (b) a scheduled on-chain `Revoke` broadcast at `expiresAt`. **This must be flagged loudly** — see § 2.1. | **High** — verified from `interface/src/state.rs` and the full Token-2022 extension list (<https://www.solana-program.com/docs/token-2022/extensions>). |
-| **`maxAmountPerTx`** | ⚠️ soft (backend only) | ⚠️ **soft (backend only)** — unchanged | **NONE.** SPL delegation caps the *total* (`delegated_amount`), not per-call. A single delegated `transferChecked` may drain the entire remaining allowance. Backend must reject `value > maxAmountPerTx` before signing — identical posture to EVM. | **High** |
-| **`allowedRecipients`** | ⚠️ soft (backend only); on-chain impossible (payee pinned to spender) | ⚠️ **soft (backend only)** — but the flow *improves* (see § 3) | **NONE.** `transferChecked`'s destination is an arbitrary argument the backend chooses; nothing on-chain constrains it to an allowlist. **However**, unlike EVM (where funds first land on the spender), here the delegate transfers **treasury → merchant directly** — the merchant destination is chosen at the moment of the single transfer the backend builds. Still backend-enforced, but there is no intermediate custody. Empty allowlist ⇒ session `higher_risk`, every payment flagged, same as EVM. | **High** |
-| **Revocation** | ✅ real (`revoke()` user op) | ✅ **real on-chain** | SPL `Revoke` sets `delegate = None`, `delegated_amount = 0` in `process_revoke`; takes effect the moment the tx confirms. **Owner-only** in the base Token program (the delegate/agent cannot revoke itself — the treasury owner key, custodied by CDP, must sign). Record the signature; the circuit breaker submits it. | **High** — verified from `processor.rs`. |
+| **`maxAmountTotal`** | on-chain (`allowance` under single-window config; contract reverts `ExceededSpendPermission`) | **on-chain — for the active approval** | SPL `Approve` sets `delegated_amount`. In `process_transfer`, when the signer is the delegate, the token program **rejects** any transfer with `delegated_amount < amount` (`TokenError::InsufficientFunds`) and **decrements** `delegated_amount` per transfer, auto-clearing the delegate at zero. A real, program-enforced, monotonically-decreasing cap. **Caveat:** it is a *per-approval remaining allowance*, not a lifetime accumulator — a new `Approve` **overwrites** it. Our model (a) sidesteps this by approving exactly once for the lifetime total and never re-approving (see § 4). | **High** — verified from `processor.rs` (`solana-program/token`, `main`) and the installed `token.d.ts` (single scalar `delegatedAmount: bigint`). |
+| **`expiresAt`** | on-chain (`SpendPermission.end`; every `spend()` reverts once `now ≥ end`) | **SOFT-ONLY — DOWNGRADE vs EVM** | **NONE.** The SPL `Account` struct has **no** slot / timestamp / expiry / duration field anywhere (fields are exactly: `mint, owner, amount, delegate, state, is_native, delegated_amount, close_authority`). `process_approve` / `process_transfer` reference no `Clock` / slot / `unix_timestamp`. An **exhaustive** scan of **all** Token-2022 extensions found **none** that adds a time-bounded or expiring delegation — "Permanent delegate" is the *opposite* (unlimited, perpetual, uncapped). A delegation "persists indefinitely until explicitly revoked or depleted through transfers." So expiry can only be enforced **off-chain** by (a) the backend refusing to sign/submit after `expiresAt`, **and/or** (b) a scheduled on-chain `Revoke` broadcast at `expiresAt`. **This must be flagged loudly** — see § 2.1. | **High** — verified from `interface/src/state.rs` and the full Token-2022 extension list (<https://www.solana-program.com/docs/token-2022/extensions>). |
+| **`maxAmountPerTx`** | soft (backend only) | **soft (backend only)** — unchanged | **NONE.** SPL delegation caps the *total* (`delegated_amount`), not per-call. A single delegated `transferChecked` may drain the entire remaining allowance. Backend must reject `value > maxAmountPerTx` before signing — identical posture to EVM. | **High** |
+| **`allowedRecipients`** | soft (backend only); on-chain impossible (payee pinned to spender) | **soft (backend only)** — but the flow *improves* (see § 3) | **NONE.** `transferChecked`'s destination is an arbitrary argument the backend chooses; nothing on-chain constrains it to an allowlist. **However**, unlike EVM (where funds first land on the spender), here the delegate transfers **treasury → merchant directly** — the merchant destination is chosen at the moment of the single transfer the backend builds. Still backend-enforced, but there is no intermediate custody. Empty allowlist ⇒ session `higher_risk`, every payment flagged, same as EVM. | **High** |
+| **Revocation** | real (`revoke()` user op) | **real on-chain** | SPL `Revoke` sets `delegate = None`, `delegated_amount = 0` in `process_revoke`; takes effect the moment the tx confirms. **Owner-only** in the base Token program (the delegate/agent cannot revoke itself — the treasury owner key, custodied by CDP, must sign). Record the signature; the circuit breaker submits it. | **High** — verified from `processor.rs`. |
 
-Legend: ✅ on-chain = the token program rejects a violating tx regardless of our backend. ⚠️ soft = only this
-backend stops it. 🔴 = a hard limit on EVM that is **soft on Solana** and must be surfaced everywhere.
+Legend: on-chain = the token program rejects a violating tx regardless of our backend. soft = only this
+backend stops it. SOFT-ONLY (red flag) = a hard limit on EVM that is **soft on Solana** and must be surfaced everywhere.
 
 **Primary sources for this table:**
 - SPL Token program: `processor.rs` — <https://raw.githubusercontent.com/solana-program/token/main/program/src/processor.rs>
@@ -95,8 +95,8 @@ silently downgrade a hard limit — flag it loudly"), this must appear in **all*
 1. **Code comments** at the Solana adapter's issue/execute/revoke sites and in `src/config/network.ts`.
 2. **Audit risk flag** `expiry_soft_only` on **every** Solana payment row (not just at issuance).
 3. **Dashboard badge** — an "expiry not enforced on-chain" badge on every Solana session.
-4. **`TRUST_BOUNDARY.md`** — restructured to a per-chain matrix; the Solana column shows `expiresAt` as 🔴 soft.
-5. **README** — the trust-boundary table gains a Solana column with the same 🔴.
+4. **`TRUST_BOUNDARY.md`** — restructured to a per-chain matrix; the Solana column shows `expiresAt` as soft.
+5. **README** — the trust-boundary table gains a Solana column with the same soft-only marker.
 
 **Mitigation we will implement (not a fix — a mitigation):** treat expiry as **both** an off-chain
 refuse-to-sign guard **and** a scheduled on-chain `Revoke` job broadcast at/near `expiresAt`. The delegation
@@ -137,7 +137,7 @@ account = one active session key at a time.**
 
 Two ways to live with this:
 
-### Option (a) — per-session dedicated treasury token account funded to exactly `maxAmountTotal`  ✅ RECOMMENDED
+### Option (a) — per-session dedicated treasury token account funded to exactly `maxAmountTotal`  RECOMMENDED
 
 For each session, create a **fresh token account** owned by the treasury, **fund it with exactly
 `maxAmountTotal` USDC**, and `ApproveChecked` the session key as delegate for that full amount.
@@ -410,12 +410,12 @@ None of these block S1 approval; all are implementation-time verifications.
 
 Approve, and I proceed to implementation per the brief's post-S1 scope:
 
-1. **Fork:** Path B — SPL Token delegation (no CDP Solana Spend Permissions). ☐
-2. **Trust-boundary table** (§ 2), including **`expiresAt` = soft-only, flagged in all 5 places** (§ 2.1). ☐
-3. **Single-hop payment flow** (§ 3). ☐
+1. **Fork:** Path B — SPL Token delegation (no CDP Solana Spend Permissions). [ ]
+2. **Trust-boundary table** (§ 2), including **`expiresAt` = soft-only, flagged in all 5 places** (§ 2.1). [ ]
+3. **Single-hop payment flow** (§ 3). [ ]
 4. **Token-account model: option (a)** — per-session dedicated treasury token account funded to exactly
-   `maxAmountTotal`, delegate = spender (§ 4). ☐
+   `maxAmountTotal`, delegate = spender (§ 4). [ ]
 5. **Config shape** (§ 6) — `EVM_NETWORK` + `SOLANA_NETWORK`, `NETWORK` alias, Solana defaults devnet, both
-   servable at once. ☐
-6. **Packages/functions** (§ 7) — pinned, no native builds. ☐
+   servable at once. [ ]
+6. **Packages/functions** (§ 7) — pinned, no native builds. [ ]
 ```

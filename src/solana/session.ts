@@ -8,7 +8,7 @@
 //                        decrements per transfer, auto-clears the delegate at 0.
 //                        We Approve ONCE with the full total (re-Approve would
 //                        OVERWRITE), giving a genuine on-chain lifetime cap.
-//   expiresAt         -> NONE. 🔴 SOFT-ONLY. SPL delegation has no time bound and
+//   expiresAt         -> NONE. SOFT-ONLY. SPL delegation has no time bound and
 //                        no Token-2022 extension adds one. Enforced off-chain
 //                        (policy refuse-after-expiry) — flagged loudly everywhere.
 //   maxAmountPerTx    -> SOFT (unchanged).

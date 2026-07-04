@@ -22,11 +22,11 @@ SOFT-ONLY on Solana.**
 
 | Parameter | EVM (Base) — CDP Spend Permissions | Solana — SPL Token delegation |
 |---|---|---|
-| **`maxAmountTotal`** | ✅ **On-chain** (`allowance`, single-window) | ✅ **On-chain** (`ApproveChecked` `delegated_amount`) |
-| **`expiresAt`** | ✅ **On-chain** (`end`; `spend()` reverts) | 🔴 **SOFT-ONLY** — SPL delegation has no time bound; no Token-2022 extension adds one |
-| **`maxAmountPerTx`** | ⚠️ Soft | ⚠️ Soft |
-| **`allowedRecipients`** | ⚠️ Soft | ⚠️ Soft |
-| **Revocation** | ✅ Real on-chain (`revoke()`) | ✅ Real on-chain (`Revoke`, owner-only) |
+| **`maxAmountTotal`** | **On-chain** (`allowance`, single-window) | **On-chain** (`ApproveChecked` `delegated_amount`) |
+| **`expiresAt`** | **On-chain** (`end`; `spend()` reverts) | **SOFT-ONLY** — SPL delegation has no time bound; no Token-2022 extension adds one |
+| **`maxAmountPerTx`** | Soft | Soft |
+| **`allowedRecipients`** | Soft | Soft |
+| **Revocation** | Real on-chain (`revoke()`) | Real on-chain (`Revoke`, owner-only) |
 | **Fund flow** | Two-hop (pull to spender → pay merchant) | Single-hop (delegate transfers treasury → merchant) |
 | **Gas** | Gasless (CDP paymaster) | Needs SOL (fee payer) |
 
@@ -46,8 +46,8 @@ Solana source of truth: token program `processor.rs`
 |---|---|---|---|---|
 | **`expiresAt`** | **On-chain by CDP** | `SpendPermission.end` (uint48, exclusive). Every `spend()` calls `getCurrentPeriod()`, which reverts `BeforeSpendPermissionStart` if `now < start` and `AfterSpendPermissionEnd` once `now >= end`. We also soft-check it for clean errors. | High | [SpendPermissionManager.sol `getCurrentPeriod`](https://github.com/coinbase/spend-permissions/blob/main/src/SpendPermissionManager.sol) |
 | **`maxAmountTotal`** | **On-chain by CDP** (via our single-window config) | `SpendPermission.allowance` (uint160). `allowance` is natively a **recurring per-period** cap that resets each `period`; there is **no lifetime accumulator**. We deliberately issue every session with a **single non-resetting window** (`start = now`, `end = expiresAt`, `period = end − start`), so `allowance = maxAmountTotal` becomes a true lifetime cap the contract enforces: `spend()` reverts `ExceededSpendPermission` once cumulative spend > allowance. | High | [`_useSpendPermission`](https://github.com/coinbase/spend-permissions/blob/main/src/SpendPermissionManager.sol); config in [`spendPermissions.ts`](src/cdp/spendPermissions.ts) |
-| **`maxAmountPerTx`** | **⚠️ SOFT — backend only** | **None.** The contract has no per-transaction field; the only single-call ceilings are the *remaining per-period allowance* and a `uint160` overflow guard. A single `spend()` may drain the entire remaining allowance. Our backend must reject `value > maxAmountPerTx` before calling `useSpendPermission`. | High | [docs/SpendPermissionAccounting.md](https://github.com/coinbase/spend-permissions/blob/main/docs/SpendPermissionAccounting.md) |
-| **`allowedRecipients`** | **⚠️ SOFT — backend only** (on-chain is architecturally impossible) | **None.** `spend()` hard-codes the payee to the immutable `spendPermission.spender` (`_transferFrom(token, account, spender, value)`), and `requireSender(spender)` forces the caller to *be* that spender. There is no recipient argument, no allowlist field, and `extraData` is never decoded to a destination. Funds can only ever reach the one `spender`; where the spender forwards them afterward is outside the contract's guarantees. Our backend is the **only** thing enforcing which merchants may be paid. Empty allowlist ⇒ session marked `higher_risk` and every payment flagged. | High | [`spend` / `_transferFrom`](https://github.com/coinbase/spend-permissions/blob/main/src/SpendPermissionManager.sol) |
+| **`maxAmountPerTx`** | **SOFT — backend only** | **None.** The contract has no per-transaction field; the only single-call ceilings are the *remaining per-period allowance* and a `uint160` overflow guard. A single `spend()` may drain the entire remaining allowance. Our backend must reject `value > maxAmountPerTx` before calling `useSpendPermission`. | High | [docs/SpendPermissionAccounting.md](https://github.com/coinbase/spend-permissions/blob/main/docs/SpendPermissionAccounting.md) |
+| **`allowedRecipients`** | **SOFT — backend only** (on-chain is architecturally impossible) | **None.** `spend()` hard-codes the payee to the immutable `spendPermission.spender` (`_transferFrom(token, account, spender, value)`), and `requireSender(spender)` forces the caller to *be* that spender. There is no recipient argument, no allowlist field, and `extraData` is never decoded to a destination. Funds can only ever reach the one `spender`; where the spender forwards them afterward is outside the contract's guarantees. Our backend is the **only** thing enforcing which merchants may be paid. Empty allowlist ⇒ session marked `higher_risk` and every payment flagged. | High | [`spend` / `_transferFrom`](https://github.com/coinbase/spend-permissions/blob/main/src/SpendPermissionManager.sol) |
 
 Legend: **On-chain by CDP** = the smart contract reverts a violating transaction regardless of our
 backend. **SOFT — backend only** = nothing on-chain stops it; only this backend does.
@@ -62,9 +62,9 @@ pays merchants directly via `transferChecked` (single-hop). Implementation:
 | Parameter | Enforcement | On-chain mechanism (or why none) | Confidence |
 |---|---|---|---|
 | **`maxAmountTotal`** | **On-chain** | `ApproveChecked` sets `delegated_amount`; the program **rejects** any delegated transfer beyond it (`InsufficientFunds`), **decrements** it per transfer, and **auto-clears** the delegate at 0. We `Approve` **once** with the full total (a re-`Approve` overwrites), giving a genuine on-chain lifetime cap. | High |
-| **`expiresAt`** | **🔴 SOFT — backend only** | **None, architecturally.** A token account has no slot/timestamp field, and an exhaustive scan of Token-2022 extensions found **no** time-bounded delegation. Enforced off-chain by the policy engine refusing to sign after `expiresAt`. This is a **downgrade vs EVM** — flagged in code, API, dashboard, and here. | High |
-| **`maxAmountPerTx`** | **⚠️ SOFT — backend only** | No per-transfer field. Backend rejects `value > maxAmountPerTx`. | High |
-| **`allowedRecipients`** | **⚠️ SOFT — backend only** | Delegation doesn't constrain the payee; the delegate can transfer to anyone. Backend enforces the allowlist. Empty ⇒ `higher_risk`. | High |
+| **`expiresAt`** | **SOFT — backend only** | **None, architecturally.** A token account has no slot/timestamp field, and an exhaustive scan of Token-2022 extensions found **no** time-bounded delegation. Enforced off-chain by the policy engine refusing to sign after `expiresAt`. This is a **downgrade vs EVM** — flagged in code, API, dashboard, and here. | High |
+| **`maxAmountPerTx`** | **SOFT — backend only** | No per-transfer field. Backend rejects `value > maxAmountPerTx`. | High |
+| **`allowedRecipients`** | **SOFT — backend only** | Delegation doesn't constrain the payee; the delegate can transfer to anyone. Backend enforces the allowlist. Empty ⇒ `higher_risk`. | High |
 | **Revocation** | **On-chain** | `Revoke` clears the delegate (owner-only). Real, immediate on-chain revocation; the circuit breaker uses it. | High |
 
 **Concurrency note (first cut):** one token account has at most one delegate, so this cut allows **one
