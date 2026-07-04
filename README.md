@@ -22,12 +22,12 @@ The definitive table is in [`TRUST_BOUNDARY.md`](TRUST_BOUNDARY.md).
 
 | Policy parameter | Enforced on-chain? | How |
 | --- | --- | --- |
-| `expiresAt` | ✅ **On-chain** | `SpendPermission.end`; every `spend()` reverts once `now ≥ end` |
-| `maxAmountTotal` | ✅ **On-chain** | `allowance` under our single-window config → contract reverts `ExceededSpendPermission` |
-| `maxAmountPerTx` | ⚠️ **Soft (backend only)** | no per-tx field exists in the contract |
-| `allowedRecipients` | ⚠️ **Soft (backend only)** | `spend()` hard-pins the payee to the spender; no recipient arg exists |
+| `expiresAt` |  **On-chain** | `SpendPermission.end`; every `spend()` reverts once `now ≥ end` |
+| `maxAmountTotal` |  **On-chain** | `allowance` under our single-window config → contract reverts `ExceededSpendPermission` |
+| `maxAmountPerTx` |  **Softwate enforced** | no per-tx field exists in the contract |
+| `allowedRecipients` |  **Software enforced** | `spend()` hard-pins the payee to the spender; no recipient arg exists |
 
-The two soft parameters **cannot** be enforced on-chain by `SpendPermissionManager` and are enforced
+The two software parameters cant be enforced on-chain by `SpendPermissionManager` and are enforced
 only by this backend. They are flagged in code, in `TRUST_BOUNDARY.md`, and as per-payment audit risk
 flags. Nothing is silently downgraded.
 
