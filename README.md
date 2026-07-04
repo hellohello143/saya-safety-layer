@@ -1,4 +1,4 @@
-# 🛡️ Saya — AI Agent Payment Safety Layer
+# Saya — AI Agent Payment Safety Layer
 
 **Give an AI agent a wallet without giving it your bank account.**
 
@@ -29,16 +29,16 @@ The result: agents that transact freely *inside* a sandbox you define, and canno
 
 ---
 
-## ✨ Features
+## Features
 
-- 🔒 **On-chain hard limits** — the total budget is enforced by the chain on both networks (CDP Spend Permissions on Base, SPL token delegation on Solana), and expiry too on Base. Neither the backend nor the agent can override the on-chain limits.
-- ⛓️ **Multi-chain** — Base (EVM) and Solana run side by side; choose per session. USDC-native with 6-decimal integer math (no floating-point money bugs).
-- 🌐 **x402-native** — agents pay for HTTP resources through the x402 challenge/response flow, settled with a **real on-chain USDC transfer** that the seller verifies before releasing the resource.
-- 🚦 **Policy engine** — per-transaction caps, recipient allowlists, and a rate-limiting **circuit breaker** that auto-suspends *and revokes the key on-chain* the moment it trips.
-- 🧾 **Full audit trail** — every decision, approved or rejected, is persisted with a reason code and queryable by agent, session, decision, or time.
-- 🔑 **Built-in auth** — all API routes are protected by a bearer token, and the server **refuses to start on mainnet without one**.
-- 📊 **Ops dashboard** — create sessions, watch remaining budget and risk flags, revoke keys, and filter the audit log from a clean web UI.
-- 🐳 **One-command setup** — `docker compose up`, or a guided `npm run setup` that validates your credentials and funds a test wallet automatically.
+- **On-chain hard limits** — the total budget is enforced by the chain on both networks (CDP Spend Permissions on Base, SPL token delegation on Solana), and expiry too on Base. Neither the backend nor the agent can override the on-chain limits.
+- **Multi-chain** — Base (EVM) and Solana run side by side; choose per session. USDC-native with 6-decimal integer math (no floating-point money bugs).
+- **x402-native** — agents pay for HTTP resources through the x402 challenge/response flow, settled with a **real on-chain USDC transfer** that the seller verifies before releasing the resource.
+- **Policy engine** — per-transaction caps, recipient allowlists, and a rate-limiting **circuit breaker** that auto-suspends *and revokes the key on-chain* the moment it trips.
+- **Full audit trail** — every decision, approved or rejected, is persisted with a reason code and queryable by agent, session, decision, or time.
+- **Built-in auth** — all API routes are protected by a bearer token, and the server **refuses to start on mainnet without one**.
+- **Ops dashboard** — create sessions, watch remaining budget and risk flags, revoke keys, and filter the audit log from a clean web UI.
+- **One-command setup** — `docker compose up`, or a guided `npm run setup` that validates your credentials and funds a test wallet automatically.
 
 ---
 
@@ -49,15 +49,15 @@ A payment is deliberately **two hops**. The on-chain permission delivers funds t
 ```mermaid
 sequenceDiagram
     autonumber
-    participant Agent as 🤖 AI Agent
-    participant Saya as 🛡️ Saya
-    participant Chain as ⛓️ Smart Account
-    participant Seller as 🏪 x402 Merchant
+    participant Agent as AI Agent
+    participant Saya as Saya
+    participant Chain as Smart Account
+    participant Seller as x402 Merchant
 
     Agent->>Saya: POST /api/pay (sessionId, targetUrl)
     Saya->>Saya: Policy check<br/>(per-tx cap · recipient · rate limit)
     Saya->>Chain: Pull ≤ remaining budget
-    Note over Chain: reverts if over total budget,<br/>or past expiry on Base ✋
+    Note over Chain: reverts if over total budget,<br/>or past expiry on Base
     Chain-->>Saya: USDC released to spender
     Saya->>Seller: Pay via x402 (real on-chain transfer)
     Seller->>Seller: Verify transfer on-chain
@@ -75,20 +75,20 @@ Saya's guiding principle: **enforce every limit at the strongest layer the chain
 
 | Limit | Base (EVM) | Solana |
 | --- | :---: | :---: |
-| **Total budget** | ✅ On-chain | ✅ On-chain |
-| **Expiry** | ✅ On-chain | 🔸 Backend |
-| **Revocation** | ✅ On-chain | ✅ On-chain |
-| **Per-transaction cap** | 🔸 Backend | 🔸 Backend |
-| **Recipient allowlist** | 🔸 Backend | 🔸 Backend |
+| **Total budget** | On-chain | On-chain |
+| **Expiry** | On-chain | Backend |
+| **Revocation** | On-chain | On-chain |
+| **Per-transaction cap** | Backend | Backend |
+| **Recipient allowlist** | Backend | Backend |
 
-**✅ On-chain** — the smart contract enforces it and reverts any violation, independent of this backend.
-**🔸 Backend** — *software-enforced* by Saya's policy engine (the underlying contract exposes no such field) and surfaced on every payment as a risk flag.
+**On-chain** — the smart contract enforces it and reverts any violation, independent of this backend.
+**Backend** — *software-enforced* by Saya's policy engine (the underlying contract exposes no such field) and surfaced on every payment as a risk flag.
 
 The complete, primary-source-cited breakdown lives in [`TRUST_BOUNDARY.md`](TRUST_BOUNDARY.md) — so you always know precisely what is protecting your funds.
 
 ---
 
-## 🚀 Quick start (Docker)
+## Quick start (Docker)
 
 The fastest path. You need [Docker](https://docs.docker.com/get-docker/) and CDP credentials (2 minutes to create — see [below](#getting-cdp-credentials)).
 
@@ -98,15 +98,15 @@ cd saya-safety-layer
 cp .env.example .env                              # fill in your 3 CDP_* values
 
 docker compose run --rm backend npm run setup     # validates creds · generates an API token · funds the testnet wallet
-docker compose up                                 # backend + dashboard → :3000, mock seller → :4021
-docker compose --profile demo up                  # ↑ and run the agent demo once against it
+docker compose up                                 # backend + dashboard -> :3000, mock seller -> :4021
+docker compose --profile demo up                  # and run the agent demo once against it
 ```
 
 Open **http://localhost:3000** for the dashboard. That's it.
 
 ---
 
-## 🧰 Install (local, no Docker)
+## Install (local, no Docker)
 
 **Prerequisites:** **Node.js ≥ 22.13** (uses the built-in `node:sqlite` — no native build tools, no compiler).
 
@@ -123,8 +123,8 @@ The SQLite schema is created automatically on first boot — there's no migratio
 ### Getting CDP credentials
 
 1. Sign in at the [CDP Portal](https://portal.cdp.coinbase.com).
-2. Create a **Secret API Key** → gives you `CDP_API_KEY_ID` + `CDP_API_KEY_SECRET`.
-3. Create/note your **Wallet Secret** (authorizes wallet operations) → `CDP_WALLET_SECRET`.
+2. Create a **Secret API Key** -> gives you `CDP_API_KEY_ID` + `CDP_API_KEY_SECRET`.
+3. Create/note your **Wallet Secret** (authorizes wallet operations) -> `CDP_WALLET_SECRET`.
 4. Put all three in `.env`. Saya creates the owner, treasury, and spender accounts by name on first use.
 
 ### Funding the wallet
@@ -135,13 +135,13 @@ The SQLite schema is created automatically on first boot — there's no migratio
 
 ---
 
-## 🎮 Usage
+## Usage
 
 Open three terminals from the repo root:
 
 ```bash
-npm run dev           # backend + dashboard  → http://127.0.0.1:3000
-npm run mock-seller   # a local x402 resource → http://127.0.0.1:4021/resource
+npm run dev           # backend + dashboard  -> http://127.0.0.1:3000
+npm run mock-seller   # a local x402 resource -> http://127.0.0.1:4021/resource
 npm run agent-sim     # drives the demo scenarios against the two above
 ```
 
@@ -153,10 +153,10 @@ npm run agent-sim     # drives the demo scenarios against the two above
 
 | Scenario | What it proves |
 | --- | --- |
-| `within`  | A payment inside the limits → **approved** ✅ |
-| `pertx`   | A payment over the per-tx cap → `EXCEEDS_PER_TX_LIMIT` |
-| `total`   | A payment over the total budget → `EXCEEDS_TOTAL_LIMIT` |
-| `breaker` | Hammering past the rate limit → `RATE_LIMIT_TRIPPED` + **real on-chain revocation** |
+| `within`  | A payment inside the limits -> **approved** |
+| `pertx`   | A payment over the per-tx cap -> `EXCEEDS_PER_TX_LIMIT` |
+| `total`   | A payment over the total budget -> `EXCEEDS_TOTAL_LIMIT` |
+| `breaker` | Hammering past the rate limit -> `RATE_LIMIT_TRIPPED` + **real on-chain revocation** |
 
 Run one at a time with `npm run agent-sim -- within|pertx|total|breaker`.
 
@@ -170,14 +170,14 @@ All routes are under `/api` and require the `Authorization: Bearer <API_TOKEN>` 
 | `GET /api/sessions` | List sessions (filter by `status`) |
 | `GET /api/sessions/:id?onchain=true` | Session detail, optionally with a live on-chain read |
 | `POST /api/sessions/:id/revoke` | Revoke the key **on-chain** |
-| `POST /api/pay` | `{ sessionId, targetUrl }` → the resource, or a structured rejection + reason code |
+| `POST /api/pay` | `{ sessionId, targetUrl }` -> the resource, or a structured rejection + reason code |
 | `GET /api/audit` | Query the audit log (`agentId`, `sessionId`, `decision`, `from`, `to`, `limit`) |
 | `GET /api/accounts` | Resolved treasury + spender addresses (where to fund) |
 | `GET /api/networks` | Enabled chains and their enforcement properties |
 
 ---
 
-## ⛓️ Multi-chain (Solana)
+## Multi-chain (Solana)
 
 Base and Solana run at the same time. Enable Solana in `.env`:
 
@@ -196,7 +196,7 @@ Solana enforces the **total budget** (via SPL `delegated_amount`) and **revocati
 
 ---
 
-## 🔐 Security
+## Security
 
 - **API-token auth on every `/api/*` route.** Send `Authorization: Bearer <token>` (or `X-API-Key`); compared in constant time. `npm run setup` generates a strong token into `.env` automatically — set your own anytime.
 - **Fail-closed on mainnet.** With any mainnet network configured, the server **refuses to start** without `API_TOKEN`. Real money is never served unprotected.
@@ -211,7 +211,7 @@ Solana enforces the **total budget** (via SPL `delegated_amount`) and **revocati
 
 ---
 
-## 🏗️ Architecture
+## Architecture
 
 ```
 src/
@@ -238,6 +238,6 @@ docs/            verified CDP/x402 research + the contract source snapshot
 
 ---
 
-## 📄 License & status
+## License & status
 
 An MVP reference implementation — working end-to-end on Base and Solana, testnet and mainnet, with 48 passing tests. Contributions and issues welcome.
