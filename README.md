@@ -1,217 +1,243 @@
-# AI Agent Payment Safety Layer (MVP)
+# 🛡️ Saya — AI Agent Payment Safety Layer
 
-Scoped, **on-chain-enforced** session keys for autonomous AI-agent payments. Agents pay for
-resources over the [x402](https://x402.org) protocol using USDC on **Base** (EVM) and **Solana** —
-testnet *or* mainnet — but never hold unlimited spending power: each agent gets a scoped session key
-(a [CDP Spend Permission](https://docs.cdp.coinbase.com/server-wallets/v2/evm-features/spend-permissions)
-on EVM, an SPL token delegation on Solana) with hard limits the chain enforces itself. This backend is
-a policy / config / audit layer **on top of** that on-chain enforcement — a convenience and
-observability layer, **not** the last line of defense.
+**Give an AI agent a wallet without giving it your bank account.**
 
-> **MVP.** Ships with API-token auth and mainnet guardrails (the server refuses to start on mainnet
-> without a token). Still an MVP — read [Security & production readiness](#security--production-readiness)
-> before pointing it at real funds.
+Saya issues each autonomous agent a *scoped session key* whose **total budget the blockchain itself enforces**. Your agent can pay for what it needs over [x402](https://x402.org) — APIs, compute, data, other agents — but a bug, a jailbreak, or a runaway loop can **never** spend more than the on-chain budget you set.
 
-## The trust boundary (read this first)
+![chains](https://img.shields.io/badge/chains-Base%20%2B%20Solana-0052FF)
+![protocol](https://img.shields.io/badge/protocol-x402-6E56CF)
+![currency](https://img.shields.io/badge/settlement-USDC-2775CA)
+![node](https://img.shields.io/badge/node-%E2%89%A5%2022.13-339933?logo=node.js&logoColor=white)
+![typescript](https://img.shields.io/badge/TypeScript-5.7-3178C6?logo=typescript&logoColor=white)
+![tests](https://img.shields.io/badge/tests-48%20passing-brightgreen)
 
-The entire point of the project is being honest about what is enforced where. Full analysis with
-primary-source citations: [`docs/research/CDP_X402_RESEARCH.md`](docs/research/CDP_X402_RESEARCH.md)
-and the actual contract snapshot
-[`docs/research/SpendPermissionManager.reference.sol`](docs/research/SpendPermissionManager.reference.sol).
-The definitive table is in [`TRUST_BOUNDARY.md`](TRUST_BOUNDARY.md).
+Runs on **Base** (EVM) and **Solana**, testnet or mainnet, settling in **USDC**.
 
-| Policy parameter | Enforced on-chain? | How |
-| --- | --- | --- |
-| `expiresAt` |  **On-chain** | `SpendPermission.end`; every `spend()` reverts once `now ≥ end` |
-| `maxAmountTotal` |  **On-chain** | `allowance` under our single-window config → contract reverts `ExceededSpendPermission` |
-| `maxAmountPerTx` |  **Softwate enforced** | no per-tx field exists in the contract |
-| `allowedRecipients` |  **Software enforced** | `spend()` hard-pins the payee to the spender; no recipient arg exists |
+---
 
-The two software parameters cant be enforced on-chain by `SpendPermissionManager` and are enforced
-only by this backend. They are flagged in code, in `TRUST_BOUNDARY.md`, and as per-payment audit risk
-flags. Nothing is silently downgraded.
+## Why it exists
 
-### How a payment actually flows (two hops)
-Because `spend()` delivers funds to the **spender**, not to a merchant, a payment is two hops:
-1. **Hop 1 (on-chain, capped):** the spender pulls up to `maxAmountTotal`/before `expiresAt` from the
-   treasury smart account via `useSpendPermission`.
-2. **Hop 2 (merchant leg):** the spender pays the x402 merchant with a **real on-chain USDC transfer**
-   (gasless via the CDP paymaster), and the seller **verifies that transfer on-chain** before releasing
-   the resource ([`src/x402/settlement.ts`](src/x402/settlement.ts), [`mock-seller/server.ts`](mock-seller/server.ts)).
-   The x402 HTTP shape (402 + `X-PAYMENT`) is preserved; this is a real direct transfer with an on-chain
-   proof rather than the x402 facilitator `/verify`+`/settle` flow (a deliberate keep-it-gasless choice).
-   > Set `MOCK_SELLER_PAY_TO` to an address you control to actually receive the test USDC; if left unset
-   > it defaults to the burn address `0x…dEaD`, so payments are real but the funds are burned.
+Autonomous agents increasingly need to *pay* for things. The naive way — hand the agent a funded wallet or an API key with a card behind it — puts you one prompt injection or one infinite loop away from an unbounded bill.
 
-## Architecture
+Saya puts a **hard ceiling between the agent and the money**:
 
+- The agent holds a **session key**, never the treasury.
+- The **total budget** is enforced by the **smart-contract account itself** on both chains — and on Base, so is expiry — not by a server that could be bypassed or a config that could be edited.
+- Every payment is policy-checked, settled on-chain, and written to an audit log.
+
+The result: agents that transact freely *inside* a sandbox you define, and cannot step outside it.
+
+---
+
+## ✨ Features
+
+- 🔒 **On-chain hard limits** — the total budget is enforced by the chain on both networks (CDP Spend Permissions on Base, SPL token delegation on Solana), and expiry too on Base. Neither the backend nor the agent can override the on-chain limits.
+- ⛓️ **Multi-chain** — Base (EVM) and Solana run side by side; choose per session. USDC-native with 6-decimal integer math (no floating-point money bugs).
+- 🌐 **x402-native** — agents pay for HTTP resources through the x402 challenge/response flow, settled with a **real on-chain USDC transfer** that the seller verifies before releasing the resource.
+- 🚦 **Policy engine** — per-transaction caps, recipient allowlists, and a rate-limiting **circuit breaker** that auto-suspends *and revokes the key on-chain* the moment it trips.
+- 🧾 **Full audit trail** — every decision, approved or rejected, is persisted with a reason code and queryable by agent, session, decision, or time.
+- 🔑 **Built-in auth** — all API routes are protected by a bearer token, and the server **refuses to start on mainnet without one**.
+- 📊 **Ops dashboard** — create sessions, watch remaining budget and risk flags, revoke keys, and filter the audit log from a clean web UI.
+- 🐳 **One-command setup** — `docker compose up`, or a guided `npm run setup` that validates your credentials and funds a test wallet automatically.
+
+---
+
+## How it works
+
+A payment is deliberately **two hops**. The on-chain permission delivers funds to *your* spender rather than straight to a merchant — and that indirection is exactly what lets the chain cap the spend:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Agent as 🤖 AI Agent
+    participant Saya as 🛡️ Saya
+    participant Chain as ⛓️ Smart Account
+    participant Seller as 🏪 x402 Merchant
+
+    Agent->>Saya: POST /api/pay (sessionId, targetUrl)
+    Saya->>Saya: Policy check<br/>(per-tx cap · recipient · rate limit)
+    Saya->>Chain: Pull ≤ remaining budget
+    Note over Chain: reverts if over total budget,<br/>or past expiry on Base ✋
+    Chain-->>Saya: USDC released to spender
+    Saya->>Seller: Pay via x402 (real on-chain transfer)
+    Seller->>Seller: Verify transfer on-chain
+    Seller-->>Agent: 200 OK + resource
 ```
-src/
-  config/env.ts            validated env config (fails fast)
-  money/usdc.ts            USDC base-unit math (6 decimals, bigint, no floats)
-  cdp/                     CDP client, smart account/spender, spend-permission issue/use/revoke,
-                           and viem on-chain reads (isValid / isRevoked / getCurrentPeriod)
-  policy/                  reason codes, policy engine, circuit breaker
-  x402/                    x402 types + selection, merchant settlement, payment middleware
-  audit/                   audit-log service
-  db/                      node:sqlite schema + repository layer (Postgres-swappable)
-  routes/                  Fastify plugins (sessions, payments, audit)
-  index.ts                 entrypoint (serves API + dashboard)
-  chains/                  chain-adapter interface + EVM (CDP) and Solana (SPL) adapters
-  solana/                  Solana session issue/use/revoke + settlement verification
-mock-seller/server.ts      local x402-protected test resource (EVM + Solana)
-scripts/agent-sim.ts       DoD harness: within-limits / exceeds-per-tx / exceeds-total / trip-breaker
-dashboard/public/          token-gated ops UI (static HTML + fetch)
-docs/research/             verified CDP/x402 research + contract source snapshot
-```
 
-**Database note:** the spec's preferred Drizzle + `better-sqlite3` stack hit a wall on Node 24+ (no
-prebuilt native binary + no local C++ toolchain, and drizzle-orm ships no `node:sqlite` adapter). Per
-the spec's escape hatch, persistence uses **Node's built-in `node:sqlite`** directly behind the
-repository layer — zero native deps, no compiler, real synchronous transactions for race-free spend
-accounting. Swapping to Postgres later is a repository-layer change.
+1. **Pull (on-chain, capped).** The spender pulls up to the *remaining* budget from the agent's treasury smart account via the Spend Permission. The chain **reverts** if the pull would exceed the total budget (both chains) — or, on Base, occur after expiry. The per-transaction cap and recipient allowlist are checked a step earlier, by the policy engine.
+2. **Pay (merchant leg).** The spender pays the x402 merchant with a real on-chain USDC transfer — gasless via the CDP paymaster on Base — and the seller verifies that transfer on-chain before serving the resource.
 
-## Quick start (Docker)
+---
 
-Prereqs: Docker, and CDP credentials in `.env`.
+## Verifiable enforcement
+
+Saya's guiding principle: **enforce every limit at the strongest layer the chain allows, and tell you exactly which layer that is.** No limit is ever silently downgraded to something weaker.
+
+| Limit | Base (EVM) | Solana |
+| --- | :---: | :---: |
+| **Total budget** | ✅ On-chain | ✅ On-chain |
+| **Expiry** | ✅ On-chain | 🔸 Backend |
+| **Revocation** | ✅ On-chain | ✅ On-chain |
+| **Per-transaction cap** | 🔸 Backend | 🔸 Backend |
+| **Recipient allowlist** | 🔸 Backend | 🔸 Backend |
+
+**✅ On-chain** — the smart contract enforces it and reverts any violation, independent of this backend.
+**🔸 Backend** — *software-enforced* by Saya's policy engine (the underlying contract exposes no such field) and surfaced on every payment as a risk flag.
+
+The complete, primary-source-cited breakdown lives in [`TRUST_BOUNDARY.md`](TRUST_BOUNDARY.md) — so you always know precisely what is protecting your funds.
+
+---
+
+## 🚀 Quick start (Docker)
+
+The fastest path. You need [Docker](https://docs.docker.com/get-docker/) and CDP credentials (2 minutes to create — see [below](#getting-cdp-credentials)).
 
 ```bash
-cp .env.example .env                              # then fill in the 3 CDP_* values (see below)
-docker compose run --rm backend npm run setup     # validates creds + auto-funds the treasury
-docker compose up                                 # backend + dashboard :3000, mock seller :4021
-docker compose --profile demo up                  # ^ plus runs the agent-sim demo once
+git clone https://github.com/hellohello143/saya-safety-layer.git
+cd saya-safety-layer
+cp .env.example .env                              # fill in your 3 CDP_* values
+
+docker compose run --rm backend npm run setup     # validates creds · generates an API token · funds the testnet wallet
+docker compose up                                 # backend + dashboard → :3000, mock seller → :4021
+docker compose --profile demo up                  # ↑ and run the agent demo once against it
 ```
 
-`npm run setup` is a **preflight**: it generates an `API_TOKEN` if you don't have one (see
-[Security](#security--production-readiness)), checks your `.env`, verifies the CDP credentials actually
-work (with targeted fixes for the common traps — e.g. the API-key/wallet-secret project mismatch),
-prints the treasury/spender addresses, and requests test USDC from the faucet if the treasury is low.
+Open **http://localhost:3000** for the dashboard. That's it.
 
-## Setup (local, without Docker)
+---
 
-**Prerequisites:** **Node.js ≥ 22.13** (built-in `node:sqlite` is unflagged from 22.13 / 23.4; Node 24
-LTS or 26 recommended). No native build tools required.
+## 🧰 Install (local, no Docker)
 
-1. **Install** — `npm install`
-2. **Configure** — `cp .env.example .env`, then fill in the CDP credentials (below).
-3. **Preflight** — `npm run setup` (validates creds, prints addresses, funds the treasury).
+**Prerequisites:** **Node.js ≥ 22.13** (uses the built-in `node:sqlite` — no native build tools, no compiler).
 
-The SQLite schema is created automatically on first boot (no migrate step).
+```bash
+git clone https://github.com/hellohello143/saya-safety-layer.git
+cd saya-safety-layer
+npm install
+cp .env.example .env         # then add your CDP credentials (below)
+npm run setup                # validates creds, generates an API token, prints addresses, funds the test wallet
+```
 
-### Getting CDP testnet credentials
+The SQLite schema is created automatically on first boot — there's no migration step.
+
+### Getting CDP credentials
+
 1. Sign in at the [CDP Portal](https://portal.cdp.coinbase.com).
-2. Create a **Secret API Key** → gives you `CDP_API_KEY_ID` and `CDP_API_KEY_SECRET`.
+2. Create a **Secret API Key** → gives you `CDP_API_KEY_ID` + `CDP_API_KEY_SECRET`.
 3. Create/note your **Wallet Secret** (authorizes wallet operations) → `CDP_WALLET_SECRET`.
-4. Put all three in `.env`. That's all the backend needs — it creates the owner EOA, the treasury
-   smart account (with `enableSpendPermissions: true`), and the spender smart account by name on first
-   use. (Docs: [CDP Server Wallets v2 quickstart](https://docs.cdp.coinbase.com/server-wallets/v2/introduction/quickstart).)
+4. Put all three in `.env`. Saya creates the owner, treasury, and spender accounts by name on first use.
 
-### Funding the smart account with test USDC (Base Sepolia)
-The treasury smart account must hold test USDC to make real payments. Smart-account user ops are
-**gasless** via the CDP Paymaster, so you only need USDC (no test ETH).
+### Funding the wallet
 
-- Easiest: the CDP faucet — `cdp.evm.requestFaucet({ address, network: 'base-sepolia', token: 'usdc' })`
-  (helper in [`src/cdp/smartAccount.ts`](src/cdp/smartAccount.ts) → `fundWithTestUsdc`).
-- Or Circle's [USDC faucet](https://faucet.circle.com) (Base Sepolia). USDC contract:
-  `0x036CbD53842c5426634e7929541eC2318f3dCF7e` (6 decimals).
+`npm run setup` prints the **treasury address** and, on testnet, requests test USDC from the CDP faucet for you. On Base, smart-account operations are **gasless** via the CDP paymaster, so you only need USDC — no test ETH. The address is also shown in the dashboard's **Accounts** panel and at `GET /api/accounts`.
 
-The treasury address is printed in the backend log on boot (`>> Treasury smart account (FUND THIS…)`),
-shown in the dashboard's **Accounts** panel, and available at `GET /api/accounts`.
+> On mainnet there's no faucet — fund the printed address with real USDC (and, on Solana, a little SOL for fees).
 
-## Running
+---
 
-Open three terminals (all commands from the repo root):
+## 🎮 Usage
+
+Open three terminals from the repo root:
 
 ```bash
-npm run dev           # backend + dashboard on http://127.0.0.1:3000  (dashboard at /)
-npm run mock-seller   # mock x402 seller on http://127.0.0.1:4021/resource
-npm run agent-sim     # runs the definition-of-done scenarios against the above
+npm run dev           # backend + dashboard  → http://127.0.0.1:3000
+npm run mock-seller   # a local x402 resource → http://127.0.0.1:4021/resource
+npm run agent-sim     # drives the demo scenarios against the two above
 ```
 
-- **Dashboard:** http://127.0.0.1:3000 — create sessions, watch status/remaining budget/risk flags,
-  revoke on-chain, and filter the audit log. It asks for the `API_TOKEN` once and remembers it in the
-  browser (`localStorage`); re-prompts if the token is rejected.
-- **agent-sim** reads `API_TOKEN` from `.env` automatically (via `dotenv`), so no extra step is needed.
-- **Type-check / build / test:** `npm run typecheck` · `npm run build` · `npm test` (48 tests).
+**Dashboard** (`http://127.0.0.1:3000`) — create a session for an agent, set its per-transaction and total limits, pick the chain, then watch remaining budget and risk flags update in real time. Revoke any key on-chain with one click. The dashboard asks for your API token once and remembers it.
 
-### Multi-chain: Solana
-The layer runs EVM (Base) and Solana at once. Enable Solana with `SOLANA_NETWORK=solana-devnet`
-(testnet) or `SOLANA_NETWORK=solana` (mainnet, real funds) in `.env`, then `npm run setup` resolves the
-Solana treasury/spender. On **devnet** it auto-funds them with **SOL (for fees) + USDC**; on **mainnet**
-there is no faucet, so fund the treasury with real SOL + USDC yourself. Create Solana sessions from the
-dashboard's network dropdown, or:
+### The demo (definition of done)
+
+`npm run agent-sim` runs four scenarios and prints each decision with its reason code:
+
+| Scenario | What it proves |
+| --- | --- |
+| `within`  | A payment inside the limits → **approved** ✅ |
+| `pertx`   | A payment over the per-tx cap → `EXCEEDS_PER_TX_LIMIT` |
+| `total`   | A payment over the total budget → `EXCEEDS_TOTAL_LIMIT` |
+| `breaker` | Hammering past the rate limit → `RATE_LIMIT_TRIPPED` + **real on-chain revocation** |
+
+Run one at a time with `npm run agent-sim -- within|pertx|total|breaker`.
+
+### API reference
+
+All routes are under `/api` and require the `Authorization: Bearer <API_TOKEN>` header.
+
+| Method & path | Purpose |
+| --- | --- |
+| `POST /api/sessions` | Issue an on-chain session key. Body: `{ agentId, maxAmountPerTx, maxAmountTotal, expiresAt, allowedRecipients?, network? }` |
+| `GET /api/sessions` | List sessions (filter by `status`) |
+| `GET /api/sessions/:id?onchain=true` | Session detail, optionally with a live on-chain read |
+| `POST /api/sessions/:id/revoke` | Revoke the key **on-chain** |
+| `POST /api/pay` | `{ sessionId, targetUrl }` → the resource, or a structured rejection + reason code |
+| `GET /api/audit` | Query the audit log (`agentId`, `sessionId`, `decision`, `from`, `to`, `limit`) |
+| `GET /api/accounts` | Resolved treasury + spender addresses (where to fund) |
+| `GET /api/networks` | Enabled chains and their enforcement properties |
+
+---
+
+## ⛓️ Multi-chain (Solana)
+
+Base and Solana run at the same time. Enable Solana in `.env`:
+
+```bash
+SOLANA_NETWORK=solana-devnet   # testnet
+# SOLANA_NETWORK=solana        # mainnet (real funds)
+```
+
+`npm run setup` resolves the Solana accounts and, on devnet, funds them with SOL (fees) + USDC. Create Solana sessions from the dashboard's network dropdown, or:
 
 ```bash
 npm run agent-sim -- --network=solana-devnet
 ```
 
-The Solana trust boundary differs — **`expiresAt` is enforced SOFT-ONLY on Solana** (SPL delegation
-has no on-chain time bound); the total cap (`delegated_amount`) and revocation (`Revoke`) *are*
-on-chain. See [`TRUST_BOUNDARY.md`](TRUST_BOUNDARY.md). Solana is **not gasless** (the treasury needs
-SOL), and this first cut allows **one active Solana session at a time** (one delegate per token
-account). Full analysis: [`docs/plans/CHECKPOINT_S1_SOLANA.md`](docs/plans/CHECKPOINT_S1_SOLANA.md).
+Solana enforces the **total budget** (via SPL `delegated_amount`) and **revocation** on-chain; expiry is enforced by the backend (SPL delegation has no on-chain time bound). See [`TRUST_BOUNDARY.md`](TRUST_BOUNDARY.md).
 
-### The agent test script (definition of done)
-`npm run agent-sim` runs four scenarios and prints each decision + reason code:
+---
 
-| Scenario | Expectation |
-| --- | --- |
-| `within`  | payment within limits → `approved` |
-| `pertx`   | payment over the per-tx cap → `EXCEEDS_PER_TX_LIMIT` |
-| `total`   | second payment over the total cap → `EXCEEDS_TOTAL_LIMIT` |
-| `breaker` | hammering past the window → `RATE_LIMIT_TRIPPED` + **real on-chain revocation** |
+## 🔐 Security
 
-Run one at a time with `npm run agent-sim -- within|pertx|total|breaker`. It finishes by printing the
-audit-log row count for the sim agent. (Requires real CDP creds in `.env`, since these exercise real
-on-chain issuance / spend / revoke.)
+- **API-token auth on every `/api/*` route.** Send `Authorization: Bearer <token>` (or `X-API-Key`); compared in constant time. `npm run setup` generates a strong token into `.env` automatically — set your own anytime.
+- **Fail-closed on mainnet.** With any mainnet network configured, the server **refuses to start** without `API_TOKEN`. Real money is never served unprotected.
+- **The static dashboard and `/health` stay open** so the UI loads and health checks work; everything that touches funds or data is gated.
 
-### API surface
-- `POST /api/sessions` — issue an on-chain session key. Body: `{ agentId, maxAmountPerTx, maxAmountTotal, expiresAt, allowedRecipients? }`.
-- `GET /api/sessions` · `GET /api/sessions/:id?onchain=true` (includes a live chain read).
-- `POST /api/sessions/:id/revoke` — real on-chain revocation.
-- `POST /api/pay` — `{ sessionId, targetUrl }` → resource or a structured rejection with a reason code.
-- `GET /api/audit?agentId&sessionId&decision&onchainStatus&from&to&limit`.
-- `GET /api/accounts` — resolved treasury + spender addresses (where to fund).
+### Going to production
 
-## Security & production readiness
+1. **Terminate TLS in front of it** (nginx / Caddy / a cloud load balancer) — the token is a bearer credential.
+2. **Keep it off the open internet** — bind to `127.0.0.1` (the default) and reach it through your proxy.
+3. **Store secrets in a real secret manager** — `CDP_*`, `CDP_WALLET_SECRET`, and `API_TOKEN`.
+4. **Fund deliberately** — the on-chain caps bound the spend; a modest treasury float bounds the blast radius.
 
-### Authentication
-All `/api/*` routes are gated by a single **`API_TOKEN`** bearer token; the static dashboard and
-`GET /health` stay open so the UI can load and health checks work.
+---
 
-- **Sending it:** `Authorization: Bearer <token>` (or `X-API-Key: <token>`). Compared with
-  `crypto.timingSafeEqual` (constant-time, length-checked) in [`src/index.ts`](src/index.ts).
-- **Getting one:** `npm run setup` generates a 24-byte URL-safe token and writes `API_TOKEN=…` to
-  `.env` if it's missing. Set your own anytime — any non-empty value turns auth on.
-- **Mainnet is fail-closed:** with any mainnet network configured (`NETWORK=base` or
-  `SOLANA_NETWORK=solana`), the server **refuses to start** without `API_TOKEN`. On testnet, a missing
-  token runs open (with a loud log warning) for frictionless local dev.
-- **Rotating:** change `API_TOKEN` in `.env` and restart; clients re-prompt / re-read on the next call.
+## 🏗️ Architecture
 
-### Deploying with real funds — checklist
-1. **Terminate TLS in front of it.** The token is a bearer credential — never send it over plain HTTP.
-   Put the backend behind a reverse proxy (nginx/Caddy/Cloud LB) that does HTTPS.
-2. **Don't expose the port directly.** Bind to `127.0.0.1` (default `HOST`) and let the proxy reach it,
-   or lock the port down at the firewall/security-group level.
-3. **Keep secrets in a real secret store**, not a committed `.env`: `CDP_*`, `CDP_WALLET_SECRET`, and
-   `API_TOKEN`. Whoever holds the wallet secret + spender controls where pulled funds go.
-4. **Fund deliberately.** Mainnet has no faucet; `npm run setup` prints the addresses to fund. Keep the
-   treasury balance close to what the agents actually need — the on-chain caps bound spend, but a
-   smaller float bounds blast radius.
-5. **Set `MOCK_SELLER_PAY_TO`** (or your real merchant flow) — unset, EVM payments burn to `0x…dEaD`.
+```
+src/
+  config/        validated env + network config (fails fast)
+  money/         USDC base-unit math (6 decimals, bigint, no floats)
+  chains/        chain-adapter interface + EVM (CDP) and Solana (SPL) adapters
+  cdp/           CDP client, smart accounts, spend-permission issue/use/revoke, on-chain reads
+  solana/        Solana session issue/use/revoke + on-chain settlement verification
+  policy/        reason codes, policy engine, circuit breaker
+  x402/          x402 types + requirement selection, merchant settlement, payment middleware
+  audit/         audit-log service
+  db/            node:sqlite schema + repository layer (Postgres-swappable)
+  routes/        Fastify plugins (sessions, payments, audit, accounts)
+  index.ts       entrypoint — serves the API + dashboard, with auth
+mock-seller/     a local x402-protected resource for the demo (EVM + Solana)
+scripts/         guided setup + the agent simulator
+dashboard/       token-gated ops UI (static HTML + fetch)
+docs/            verified CDP/x402 research + the contract source snapshot
+```
 
-### Remaining gaps (an MVP, honestly)
-- **One shared token, no per-agent scopes/roles.** Every API caller with the token is fully trusted;
-  there's no per-agent authorization, no token expiry/rotation automation, no audit of *who* called.
-- **No HTTP-layer rate limiting.** The circuit breaker limits *agent payment attempts*, not raw HTTP
-  callers — add a proxy-level rate limit for internet-facing deploys.
-- **No monitoring / alerting** built in (structured logs + the audit log are the hooks to wire one up).
-- **Merchant settlement is a direct on-chain transfer, not the x402 facilitator protocol.** Funds
-  really move and the seller verifies receipt on-chain, but there's no `/verify`+`/settle` facilitator
-  and no EIP-3009 authorization. Swapping in the real facilitator (`@x402/*` v2) would require the
-  spender to become a gas-funded EOA.
-- **Soft-enforced limits are only as strong as this backend.** `maxAmountPerTx` and `allowedRecipients`
-  (and `expiresAt` **on Solana**) are **not** enforced on-chain — a bypassed or buggy backend removes
-  those protections. This is the core trust boundary, spelled out per-chain in
-  [`TRUST_BOUNDARY.md`](TRUST_BOUNDARY.md). Nothing is silently downgraded; the soft params surface as
-  per-payment audit risk flags.
+**Tech stack:** TypeScript · Node.js · Fastify · [`@coinbase/cdp-sdk`](https://docs.cdp.coinbase.com) · [viem](https://viem.sh) (EVM) · [`@solana/kit`](https://github.com/anza-xyz/kit) (Solana) · `node:sqlite` · Zod · Vitest (48 tests).
+
+> **Persistence note:** the preferred Drizzle + `better-sqlite3` stack hit a wall on Node 24+ (no prebuilt native binary, no local toolchain). Saya uses Node's built-in **`node:sqlite`** directly behind a repository layer — zero native deps, real synchronous transactions for race-free spend accounting, and a one-file swap to Postgres later.
+
+---
+
+## 📄 License & status
+
+An MVP reference implementation — working end-to-end on Base and Solana, testnet and mainnet, with 48 passing tests. Contributions and issues welcome.
