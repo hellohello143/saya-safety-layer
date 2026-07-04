@@ -234,8 +234,6 @@ docs/            verified CDP/x402 research + the contract source snapshot
 
 **Tech stack:** TypeScript · Node.js · Fastify · [`@coinbase/cdp-sdk`](https://docs.cdp.coinbase.com) · [viem](https://viem.sh) (EVM) · [`@solana/kit`](https://github.com/anza-xyz/kit) (Solana) · `node:sqlite` · Zod · Vitest (48 tests).
 
-> **Persistence note:** the preferred Drizzle + `better-sqlite3` stack hit a wall on Node 24+ (no prebuilt native binary, no local toolchain). Saya uses Node's built-in **`node:sqlite`** directly behind a repository layer — zero native deps, real synchronous transactions for race-free spend accounting, and a one-file swap to Postgres later.
-
 ---
 
 ## License & status
