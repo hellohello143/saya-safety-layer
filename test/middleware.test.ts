@@ -159,6 +159,18 @@ describe('payForResource (full orchestration, CDP + network mocked)', () => {
     expect((await repo.getById('s1'))?.cumulativeSpent).toBe(PRICE); // NOT released
   });
 
+  it('allows a loopback target on testnet (the local mock seller) but always blocks cloud metadata', async () => {
+    await session();
+    // Loopback is where the local mock seller runs — must NOT be rejected as invalid on testnet.
+    const ok = await payForResource({ sessionId: 's1', targetUrl: 'http://127.0.0.1:4021/resource' });
+    expect(ok.reason).not.toBe('INVALID_TARGET_URL');
+    expect(ok.status).toBe('approved');
+    // The cloud metadata endpoint is blocked on every network (credential-exfil vector).
+    const blocked = await payForResource({ sessionId: 's1', targetUrl: 'http://169.254.169.254/latest/meta-data/' });
+    expect(blocked).toMatchObject({ status: 'rejected_policy', reason: 'INVALID_TARGET_URL' });
+    expect(h.useSessionKey).toHaveBeenCalledTimes(1); // only the loopback payment reached on-chain
+  });
+
   it('audit-never-skipped: every terminal path logs exactly one row', async () => {
     await session();
     await payForResource({ sessionId: 's1', targetUrl: 'http://seller/resource' }); // approved

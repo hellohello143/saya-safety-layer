@@ -24,6 +24,13 @@ export class BreakerRepository {
     this.db.prepare('DELETE FROM breaker_inflight WHERE id = ?').run(id);
   }
 
+  /** Drop rows older than `cutoff` — bounds table growth from attempts that were
+   *  never released (e.g. a process crash between begin and end). Such rows are
+   *  already ignored by countSince's window; this just reclaims them. */
+  deleteStaleBefore(cutoff: number): void {
+    this.db.prepare('DELETE FROM breaker_inflight WHERE started_at < ?').run(cutoff);
+  }
+
   /** Count a session's in-flight attempts started at/after `since` (older rows are
    *  treated as stale and ignored — they fall outside the breaker's window). */
   countSince(sessionId: string, since: number): number {

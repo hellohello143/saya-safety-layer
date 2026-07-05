@@ -31,6 +31,10 @@ export interface TripResult {
 
 /** Mark an attempt in-flight. Returns an id to release it with via endInFlight. */
 export function beginInFlight(sessionId: string): string {
+  // Reclaim any rows left behind by attempts that never released (e.g. a crash) —
+  // they're already outside the counting window, this just bounds table growth.
+  const cutoff = Math.floor(Date.now() / 1000) - loadEnv().CIRCUIT_BREAKER_WINDOW_SECONDS;
+  breakerRepo.deleteStaleBefore(cutoff);
   return breakerRepo.begin(sessionId);
 }
 

@@ -450,8 +450,11 @@
 
       // ---- networks + top status ----
       function renderNetworks(nets) {
-        $('network').innerHTML = nets.map((n) => `<option value="${esc(n.network)}">${esc(n.network)}</option>`).join('');
-        $('network').onchange = showNetNote;
+        const sel = $('network');
+        const prev = sel.value; // preserve the operator's choice across refreshes
+        sel.innerHTML = nets.map((n) => `<option value="${esc(n.network)}">${esc(n.network)}</option>`).join('');
+        if (prev && nets.some((n) => n.network === prev)) sel.value = prev;
+        sel.onchange = showNetNote;
         showNetNote();
         const anyMainnet = nets.some((n) => !isTestnet(n.network));
         document.body.dataset.mode = anyMainnet ? 'mainnet' : 'testnet';
