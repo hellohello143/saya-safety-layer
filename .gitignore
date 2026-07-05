@@ -20,3 +20,7 @@ Thumbs.db
 
 # local tooling
 .claude/settings.local.json
+
+# vercel local project link (not a secret, but machine-local)
+.vercel/
+**/.vercel/
