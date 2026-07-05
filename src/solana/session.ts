@@ -114,8 +114,15 @@ export async function usdcAtaOf(ownerAddress: string): Promise<string> {
   return ata;
 }
 
-/** Build, sign (via CDP), and broadcast a tx where `account` is fee payer + signer. */
-async function submit(account: SolanaAccount, instructions: Instruction[]): Promise<string> {
+/**
+ * Build, sign (via CDP), and broadcast a tx where `account` is fee payer + signer.
+ * Returns the signature AND the blockhash's lastValidBlockHeight so callers can
+ * confirm the outcome and know exactly when the tx can no longer land.
+ */
+async function submit(
+  account: SolanaAccount,
+  instructions: Instruction[],
+): Promise<{ signature: string; lastValidBlockHeight: bigint }> {
   const {
     value: { blockhash, lastValidBlockHeight },
   } = await rpc().getLatestBlockhash().send();
@@ -127,7 +134,43 @@ async function submit(account: SolanaAccount, instructions: Instruction[]): Prom
   );
   const transaction = getBase64EncodedWireTransaction(compileTransaction(txMsg));
   const res = await account.sendTransaction({ network: solCfg().cdpNetwork, transaction });
-  return res.transactionSignature;
+  return { signature: res.transactionSignature, lastValidBlockHeight: BigInt(lastValidBlockHeight) };
+}
+
+/**
+ * Poll a broadcast signature to a terminal outcome. Returns 'confirmed' (landed
+ * OK) or 'failed' (landed with an error). Throws SolanaOnchainError only once the
+ * tx can NEVER land — i.e. its blockhash has expired (current height >
+ * lastValidBlockHeight) and it never appeared — so we never falsely fail a tx
+ * that could still confirm (which would orphan a later-landing on-chain effect).
+ */
+async function confirmSignature(
+  signature: string,
+  lastValidBlockHeight: bigint,
+): Promise<'confirmed' | 'failed'> {
+  const r = rpc();
+  for (let i = 0; i < 60; i++) {
+    try {
+      const { value } = (await r.getSignatureStatuses([signature] as never).send()) as unknown as {
+        value: ({ err: unknown; confirmationStatus?: string } | null)[];
+      };
+      const st = value?.[0];
+      if (st) {
+        if (st.err) return 'failed';
+        if (st.confirmationStatus === 'confirmed' || st.confirmationStatus === 'finalized') return 'confirmed';
+      } else {
+        const height = BigInt((await r.getBlockHeight().send()) as unknown as bigint);
+        if (height > lastValidBlockHeight) {
+          throw new SolanaOnchainError(`transaction ${signature} expired without landing (dropped)`);
+        }
+      }
+    } catch (err) {
+      if (err instanceof SolanaOnchainError) throw err;
+      /* transient RPC error — keep polling */
+    }
+    await new Promise((res) => setTimeout(res, 1500));
+  }
+  throw new SolanaOnchainError(`transaction ${signature} not confirmed within the timeout`);
 }
 
 export interface IssuedSolanaSession {
@@ -157,13 +200,22 @@ export async function issueSolanaSessionKey(maxAmountTotal: bigint): Promise<Iss
     decimals: cfg.usdcDecimals,
   });
 
-  const approveSignature = await submit(treasury, [ix]);
-  // Wait for the delegation to be visible on-chain (sendTransaction returns after
-  // broadcast, not finalization) so the session is immediately usable for payment.
-  for (let i = 0; i < 12; i++) {
+  const { signature: approveSignature, lastValidBlockHeight } = await submit(treasury, [ix]);
+
+  // sendTransaction returns after broadcast, not finalization — so confirm the
+  // Approve actually LANDED on-chain. If it failed or was dropped, throw so the
+  // caller records the issuance as failed instead of a session whose on-chain cap
+  // was never created.
+  const outcome = await confirmSignature(approveSignature, lastValidBlockHeight);
+  if (outcome === 'failed') {
+    throw new SolanaOnchainError(`Approve (delegation) transaction failed on-chain: ${approveSignature}`);
+  }
+
+  // Confirmed on-chain. Best-effort wait for the delegation to be readable so the
+  // session is immediately usable (non-fatal — the Approve is already confirmed).
+  for (let i = 0; i < 8; i++) {
     try {
-      const st = await readSolanaOnchainStatus(ata, spender.address);
-      if (st.live) break;
+      if ((await readSolanaOnchainStatus(ata, spender.address)).live) break;
     } catch {
       /* not yet visible on this RPC node */
     }
@@ -193,7 +245,7 @@ export async function revokeSolanaSessionKey(tokenAccount: string, expectedDeleg
       owner: createNoopSigner(address(treasury.address)),
     });
 
-  let signature = await submit(treasury, [buildIx()]);
+  let { signature } = await submit(treasury, [buildIx()]);
   // Poll until the delegate is cleared. ~18s window; resubmit once at the halfway
   // point in case the first broadcast was dropped.
   for (let i = 0; i < 12; i++) {
@@ -208,7 +260,7 @@ export async function revokeSolanaSessionKey(tokenAccount: string, expectedDeleg
     }
     if (i === 6) {
       try {
-        signature = await submit(treasury, [buildIx()]);
+        signature = (await submit(treasury, [buildIx()])).signature;
       } catch {
         /* resubmit failed; keep polling the original */
       }
@@ -317,7 +369,7 @@ export async function executeSolanaPayment(
   let lastErr: unknown;
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
-      const signature = await submit(spender, [createIx, transferIx]);
+      const { signature } = await submit(spender, [createIx, transferIx]);
       return { signature };
     } catch (err) {
       lastErr = err;

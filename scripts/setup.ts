@@ -24,16 +24,26 @@ const bad = (m: string) => console.error(`  [x]  ${m}`);
 async function main() {
   console.log('\n▶ AI Agent Payment Safety Layer — preflight\n');
 
-  // 0. Auth: generate an API token if one isn't set (protects all /api routes).
-  if (!process.env.API_TOKEN && existsSync('.env')) {
+  // 0. Auth: ensure an API token exists (protects all /api routes).
+  if (process.env.API_TOKEN) {
+    ok('API_TOKEN is set (API auth enabled)');
+  } else if (existsSync('.env')) {
     const token = randomBytes(24).toString('base64url');
     appendFileSync('.env', `\n# API auth token (protects /api/* routes)\nAPI_TOKEN=${token}\n`);
     process.env.API_TOKEN = token;
     ok('generated an API_TOKEN and added it to .env');
     console.log(`      token: ${token}`);
     console.log('      (the dashboard asks for this once; agents send it as a Bearer token)');
-  } else if (process.env.API_TOKEN) {
-    ok('API_TOKEN is set (API auth enabled)');
+  } else {
+    // No .env file to persist to — typically Docker, where compose injects .env as
+    // environment variables rather than mounting the file. Generate one and tell the
+    // operator to add it to the .env that `docker compose` reads (a generated token
+    // that isn't persisted there wouldn't survive to `docker compose up`).
+    const token = randomBytes(24).toString('base64url');
+    bad('API_TOKEN is not set and there is no .env file here to write it to (Docker?).');
+    console.log('      Add this line to the .env that docker compose reads, then re-run:');
+    console.log(`      API_TOKEN=${token}`);
+    console.log('      (On mainnet the server refuses to start without it.)');
   }
 
   // 1. env presence

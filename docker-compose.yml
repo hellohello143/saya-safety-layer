@@ -21,6 +21,17 @@ services:
     volumes:
       - safety-data:/app/data
     command: ["npx", "tsx", "src/index.ts"]
+    # /health is open (no token); readiness gates the demo runner below.
+    healthcheck:
+      test:
+        - "CMD"
+        - "node"
+        - "-e"
+        - "fetch('http://localhost:'+(process.env.PORT||3000)+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
 
   mock-seller:
     build: .
@@ -30,6 +41,17 @@ services:
     ports:
       - "4021:4021"
     command: ["npx", "tsx", "mock-seller/server.ts"]
+    # A 402 (no X-PAYMENT) still means the seller is up — any response passes.
+    healthcheck:
+      test:
+        - "CMD"
+        - "node"
+        - "-e"
+        - "fetch('http://localhost:'+(process.env.MOCK_SELLER_PORT||4021)+'/resource').then(()=>process.exit(0)).catch(()=>process.exit(1))"
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
 
   # Demo/test harness. Runs once, then exits. Enable with `--profile demo`.
   agent-sim:
@@ -38,9 +60,12 @@ services:
     environment:
       BACKEND_URL: http://backend:3000
       MOCK_SELLER_URL: http://mock-seller:4021/resource
+    # Wait until both are actually healthy, not just started (avoids ECONNREFUSED).
     depends_on:
-      - backend
-      - mock-seller
+      backend:
+        condition: service_healthy
+      mock-seller:
+        condition: service_healthy
     profiles: ["demo"]
     command: ["npx", "tsx", "scripts/agent-sim.ts"]
 
