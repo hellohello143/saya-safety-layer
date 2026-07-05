@@ -235,7 +235,8 @@
 
       /* ---- audit ledger ---- */
       .filters { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; margin-bottom: 12px; }
-      .filters label { min-width: 130px; }
+      .filters label, .filters .field { min-width: 130px; }
+      .field { display: block; }
       .tablewrap { overflow-x: auto; border: 1px solid var(--line-2); border-radius: 8px; }
       table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
       thead th {
@@ -304,7 +305,7 @@
         <div class="head"><span class="eyebrow">Issue session key</span></div>
         <div class="grid">
           <label><span class="lab">Agent</span><input id="agentId" value="agent-1" /></label>
-          <label><span class="lab">Network</span><select id="network"></select></label>
+          <div class="field"><span class="lab">Network</span><select id="network" aria-label="Network"></select></div>
           <label><span class="lab"><span class="mk chain"></span> Total budget · on-chain</span><input id="total" value="1.00" inputmode="decimal" /></label>
           <label><span class="lab"><span class="mk soft"></span> Max per payment · policy</span><input id="perTx" value="0.05" inputmode="decimal" /></label>
           <label><span class="lab"><span class="mk chain"></span> Expires</span><input id="expiresAt" type="datetime-local" /></label>
@@ -334,12 +335,12 @@
         <div class="head"><span class="eyebrow">Audit log</span></div>
         <div class="filters">
           <label><span class="lab">Agent</span><input id="fAgent" placeholder="any" /></label>
-          <label><span class="lab">Decision</span>
-            <select id="fDecision"><option value="">any</option><option>approved</option><option>rejected_policy</option><option>rejected_onchain</option></select>
-          </label>
-          <label><span class="lab">On-chain status</span>
-            <select id="fStatus"><option value="">any</option><option>pending</option><option>confirmed</option><option>failed</option></select>
-          </label>
+          <div class="field"><span class="lab">Decision</span>
+            <select id="fDecision" aria-label="Filter by decision"><option value="">any</option><option>approved</option><option>rejected_policy</option><option>rejected_onchain</option></select>
+          </div>
+          <div class="field"><span class="lab">On-chain status</span>
+            <select id="fStatus" aria-label="Filter by on-chain status"><option value="">any</option><option>pending</option><option>confirmed</option><option>failed</option></select>
+          </div>
           <button class="btn secondary sm" onclick="loadAudit()">Filter</button>
         </div>
         <div class="tablewrap">
