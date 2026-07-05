@@ -17,19 +17,37 @@ const sessionRepo = new SessionRepository();
 
 export interface TripResult {
   tripped: boolean;
-  attemptsInWindow: number; // prior attempts already recorded in the window
+  attemptsInWindow: number; // prior committed attempts + in-flight ones
+}
+
+// In-process count of attempts that have passed the breaker check but not yet
+// written their audit row. The audit row is the durable count, but it is written
+// only at the END of a payment (after a multi-second on-chain leg), so a burst of
+// concurrent requests would all read the same low committed count and slip past.
+// Counting in-flight attempts closes that window. (Single-process design.)
+const inFlight = new Map<string, number>();
+
+export function beginInFlight(sessionId: string): void {
+  inFlight.set(sessionId, (inFlight.get(sessionId) ?? 0) + 1);
+}
+
+export function endInFlight(sessionId: string): void {
+  const n = (inFlight.get(sessionId) ?? 0) - 1;
+  if (n > 0) inFlight.set(sessionId, n);
+  else inFlight.delete(sessionId);
 }
 
 /**
  * Report whether recording another attempt should trip the breaker. Call this
- * BEFORE logging the current intent: it counts prior intents in the window, and
- * if that count already meets the max, this (the max+1'th) attempt trips it.
+ * BEFORE logging the current intent: it counts prior intents in the window (both
+ * committed to the audit log and currently in flight), and if that count already
+ * meets the max, this (the max+1'th) attempt trips it.
  */
 export function checkBreaker(sessionId: string): TripResult {
   const env = loadEnv();
   const since = Math.floor(Date.now() / 1000) - env.CIRCUIT_BREAKER_WINDOW_SECONDS;
-  const prior = auditRepo.countAttemptsSince(sessionId, since);
-  return { tripped: prior >= env.CIRCUIT_BREAKER_MAX_ATTEMPTS, attemptsInWindow: prior };
+  const active = auditRepo.countAttemptsSince(sessionId, since) + (inFlight.get(sessionId) ?? 0);
+  return { tripped: active >= env.CIRCUIT_BREAKER_MAX_ATTEMPTS, attemptsInWindow: active };
 }
 
 /**
@@ -42,13 +60,24 @@ export async function tripBreaker(sessionId: string): Promise<{ revokeTxHash?: s
   const session = await sessionRepo.getById(sessionId);
   if (!session) return {};
 
-  // 1 + 3: suspend and flag immediately.
+  // Already revoked by a prior trip: the hard limit is enforced on-chain. Do NOT
+  // downgrade the status back to 'suspended' (that would misrepresent an
+  // on-chain-revoked session) or re-submit a redundant, gas-costing revoke — just
+  // make sure it stays flagged for review.
+  if (session.status === 'revoked') {
+    if (!session.flaggedForReview) {
+      await sessionRepo.updateStatus(sessionId, 'revoked', { flaggedForReview: true });
+    }
+    return {};
+  }
+
+  // 1 + 3: suspend and flag immediately (halt further spend fast).
   await sessionRepo.updateStatus(sessionId, 'suspended', { flaggedForReview: true });
 
   // 2: real on-chain revocation via the session's chain adapter (EVM revoke() or
   //    Solana Revoke). Flip to revoked only after it confirms.
   const hasOnchainRef = session.permissionHash || session.tokenAccount;
-  if (hasOnchainRef && session.status !== 'revoked') {
+  if (hasOnchainRef) {
     const { revokeTxHash } = await adapterFor(session.network).revokeSessionKeyOnchain(session);
     await sessionRepo.updateStatus(sessionId, 'revoked', { revokeTxHash, flaggedForReview: true });
     return { revokeTxHash };

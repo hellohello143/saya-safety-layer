@@ -15,6 +15,8 @@ export const REJECTION_REASONS = [
   // extensions (spec permits extending the enum):
   'INVALID_AMOUNT', // seller amount <= 0
   'NO_PAYMENT_REQUIREMENTS', // 402 had no usable exact-scheme requirement (or a malformed amount)
+  'INVALID_TARGET_URL', // target URL is not a public http(s) URL (blocked scheme/host)
+  'TARGET_UNREACHABLE', // the target could not be reached (DNS/connect/TLS) — no chain interaction
   'RATE_LIMIT_TRIPPED',
   'ONCHAIN_REJECTED',
   'ONCHAIN_ERROR',

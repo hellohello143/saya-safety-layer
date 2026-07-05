@@ -90,10 +90,27 @@ describe('policy engine (soft layer, reason codes)', () => {
     expect(reasonOf(evaluatePolicy(s, mkIntent(), NET))).toBe('EXCEEDS_TOTAL_LIMIT');
   });
 
-  it('enforces the recipient allowlist (soft), case-insensitively', () => {
+  it('enforces the recipient allowlist (soft), case-insensitively for EVM hex', () => {
     expect(reasonOf(evaluatePolicy(mkSession(), mkIntent({ recipient: OTHER }), NET))).toBe('RECIPIENT_NOT_ALLOWED');
-    // same address, different case -> allowed
+    // same EVM address, different case -> allowed (EIP-55 checksum is just capitalization)
     const d = evaluatePolicy(mkSession(), mkIntent({ recipient: MERCHANT.toUpperCase().replace('0X', '0x') }), NET);
     expect(d.ok).toBe(true);
+  });
+
+  it('matches Solana base58 recipients CASE-SENSITIVELY (a case-variant is a different pubkey)', () => {
+    const SOL_MINT = '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU';
+    const SOL_MERCHANT = '3KzDtddx4i53FBkvCzuDmRbaMozTZoJBb1TToWhz3JfE';
+    const solSession = mkSession({
+      network: 'solana-devnet',
+      tokenAddress: SOL_MINT,
+      allowedRecipients: [SOL_MERCHANT],
+    });
+    const solIntent = (recipient: string): PaymentIntent =>
+      mkIntent({ network: 'solana-devnet', asset: SOL_MINT, recipient });
+    // exact match -> allowed
+    expect(evaluatePolicy(solSession, solIntent(SOL_MERCHANT), 'solana-devnet').ok).toBe(true);
+    // a case-variant of an allowlisted base58 address must NOT match
+    const variant = SOL_MERCHANT.toLowerCase();
+    expect(reasonOf(evaluatePolicy(solSession, solIntent(variant), 'solana-devnet'))).toBe('RECIPIENT_NOT_ALLOWED');
   });
 });

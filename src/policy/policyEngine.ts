@@ -23,13 +23,24 @@ export type PolicyDecision =
   | { ok: true; riskFlags: string[] }
   | { ok: false; reason: RejectionReason; riskFlags: string[] };
 
-const eqAddr = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+// Address equality that respects each chain's rules. EVM hex addresses are
+// case-insensitive (EIP-55 checksum is just capitalization), so compare
+// lowercased. Solana base58 addresses are CASE-SENSITIVE — two strings differing
+// only in case are DIFFERENT pubkeys — so they must match exactly. Getting this
+// wrong would silently weaken the recipient allowlist on Solana (its only
+// enforcement point). Treat "both sides 0x-hex" as EVM; everything else exact.
+const eqAddr = (a: string, b: string) => {
+  const bothHex = a.startsWith('0x') && b.startsWith('0x');
+  return bothHex ? a.toLowerCase() === b.toLowerCase() : a === b;
+};
 
 /**
- * Validate an intent against a session. `expectedNetwork` is the network the
- * safety layer operates on (base-sepolia). Pure + synchronous. Note the
- * authoritative total-cap check is reserveSpend() (race-free); the check here is
- * a fast preliminary that returns the same reason code.
+ * Validate an intent against a session. `expectedNetwork` is the session's own
+ * chain id (EVM *or* Solana — e.g. 'base', 'solana-devnet'); an intent whose
+ * requirement targets a different chain is rejected WRONG_NETWORK. Pure +
+ * synchronous, and must handle both hex (EVM) and base58 (Solana) addresses.
+ * The authoritative total-cap check is reserveSpend() (race-free); the check
+ * here is a fast preliminary that returns the same reason code.
  */
 export function evaluatePolicy(
   session: SessionRow,

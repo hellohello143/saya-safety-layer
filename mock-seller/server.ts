@@ -108,27 +108,38 @@ async function main() {
   }
 
   // EVM: verify a successful tx with a USDC Transfer to payTo >= price.
+  // CLAIM-BEFORE-VERIFY: reserve the key up front so two concurrent requests with
+  // the same tx hash can't both pass the check during the multi-second verify;
+  // release it (finally) on any non-success so a transient RPC error doesn't burn
+  // a legitimate tx permanently.
   async function verifyEvm(txHash: string): Promise<{ ok: boolean; reason?: string }> {
     const key = 'evm:' + txHash.toLowerCase();
     if (consumed.has(key)) return { ok: false, reason: 'tx already used' };
-    let receipt: Awaited<ReturnType<typeof evmClient.getTransactionReceipt>> | null = null;
-    for (let i = 0; i < 6; i++) {
-      try {
-        receipt = await evmClient.getTransactionReceipt({ hash: txHash as Hex });
-        break;
-      } catch {
-        await sleep(1500);
-      }
-    }
-    if (!receipt) return { ok: false, reason: 'tx receipt not found' };
-    if (receipt.status !== 'success') return { ok: false, reason: 'tx reverted' };
-    const transfers = parseEventLogs({ abi: ERC20_TRANSFER_ABI, logs: receipt.logs, eventName: 'Transfer' });
-    const paid = transfers.some(
-      (t) => getAddress(t.address) === usdc && getAddress(t.args.to) === getAddress(evmPayTo) && t.args.value >= priceBaseUnits,
-    );
-    if (!paid) return { ok: false, reason: 'no matching USDC Transfer to payTo' };
     consumed.add(key);
-    return { ok: true };
+    let result: { ok: boolean; reason?: string } = { ok: false, reason: 'unverified' };
+    try {
+      let receipt: Awaited<ReturnType<typeof evmClient.getTransactionReceipt>> | null = null;
+      for (let i = 0; i < 6; i++) {
+        try {
+          receipt = await evmClient.getTransactionReceipt({ hash: txHash as Hex });
+          break;
+        } catch {
+          await sleep(1500);
+        }
+      }
+      if (!receipt) result = { ok: false, reason: 'tx receipt not found' };
+      else if (receipt.status !== 'success') result = { ok: false, reason: 'tx reverted' };
+      else {
+        const transfers = parseEventLogs({ abi: ERC20_TRANSFER_ABI, logs: receipt.logs, eventName: 'Transfer' });
+        const paid = transfers.some(
+          (t) => getAddress(t.address) === usdc && getAddress(t.args.to) === getAddress(evmPayTo) && t.args.value >= priceBaseUnits,
+        );
+        result = paid ? { ok: true } : { ok: false, reason: 'no matching USDC Transfer to payTo' };
+      }
+      return result;
+    } finally {
+      if (!result.ok) consumed.delete(key);
+    }
   }
 
   // Solana: verify the signature credited >= price USDC to our Solana payTo.
@@ -136,17 +147,20 @@ async function main() {
     if (!solanaPayTo) return { ok: false, reason: 'solana not configured' };
     const key = 'sol:' + signature;
     if (consumed.has(key)) return { ok: false, reason: 'signature already used' };
-    let ok = false;
-    for (let i = 0; i < 6; i++) {
-      if (await verifySolanaSettlement(signature, solanaPayTo, priceBaseUnits)) {
-        ok = true;
-        break;
-      }
-      await sleep(1500); // not yet finalized on this RPC node
-    }
-    if (!ok) return { ok: false, reason: 'no finalized USDC transfer to payTo for >= price' };
     consumed.add(key);
-    return { ok: true };
+    let ok = false;
+    try {
+      for (let i = 0; i < 6; i++) {
+        if (await verifySolanaSettlement(signature, solanaPayTo, priceBaseUnits)) {
+          ok = true;
+          break;
+        }
+        await sleep(1500); // not yet finalized on this RPC node
+      }
+      return ok ? { ok: true } : { ok: false, reason: 'no finalized USDC transfer to payTo for >= price' };
+    } finally {
+      if (!ok) consumed.delete(key);
+    }
   }
 
   app.get('/resource', async (req, reply) => {
@@ -159,15 +173,24 @@ async function main() {
     } catch {
       return reply.code(402).send(challenge('malformed X-PAYMENT header'));
     }
+    // Structurally validate the decoded payload before touching nested fields, so a
+    // crafted header returns a 402 challenge (with the accepts menu) rather than a 500.
+    if (!payload || typeof payload !== 'object') {
+      return reply.code(402).send(challenge('malformed X-PAYMENT payload'));
+    }
 
     let result: { ok: boolean; reason?: string };
     let ref: string;
     if (payload.settlement === 'onchain-solana') {
-      ref = (payload as SolanaPaymentPayload).payload.signature;
+      const sig = (payload as SolanaPaymentPayload).payload?.signature;
+      if (typeof sig !== 'string' || !sig) return reply.code(402).send(challenge('malformed solana payment payload'));
+      ref = sig;
       result = await verifySolana(ref);
     } else if (payload.settlement === 'onchain') {
-      ref = (payload as PaymentPayloadV1).payload.settlementTxHash ?? '';
-      result = ref ? await verifyEvm(ref) : { ok: false, reason: 'missing settlement tx' };
+      const txh = (payload as PaymentPayloadV1).payload?.settlementTxHash;
+      if (typeof txh !== 'string' || !txh) return reply.code(402).send(challenge('missing or invalid settlement tx'));
+      ref = txh;
+      result = await verifyEvm(ref);
     } else {
       return reply.code(402).send(challenge('missing on-chain settlement proof'));
     }

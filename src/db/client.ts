@@ -31,6 +31,11 @@ export function getDb(): Db {
   db = new DatabaseSync(env.DATABASE_URL);
   db.exec('PRAGMA journal_mode = WAL;');
   db.exec('PRAGMA foreign_keys = ON;');
+  // Wait briefly for a write lock instead of failing a payment's BEGIN IMMEDIATE
+  // with SQLITE_BUSY the instant a second connection (an ops CLI, a mistaken
+  // second instance) touches the file. Kept modest — the driver is synchronous,
+  // so this is also the max the event loop can stall on lock contention.
+  db.exec('PRAGMA busy_timeout = 3000;');
   db.exec(SCHEMA_DDL); // idempotent CREATE TABLE IF NOT EXISTS (fresh DBs)
   migrate(db); // additive ALTERs for pre-existing DBs
   return db;

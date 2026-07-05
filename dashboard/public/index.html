@@ -99,8 +99,13 @@
 
     <script>
       const $ = (id) => document.getElementById(id);
-      const short = (s) => (s ? s.slice(0, 8) + '…' : '—');
-      const pill = (cls, txt) => `<span class="pill ${cls}">${txt}</span>`;
+      // HTML-escape any value before putting it in innerHTML. Fields like agentId
+      // and recipient are caller-controlled, so unescaped interpolation would be
+      // stored XSS when an operator views the dashboard.
+      const esc = (v) =>
+        String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+      const short = (s) => (s ? esc(String(s).slice(0, 8)) + '…' : '—');
+      const pill = (cls, txt) => `<span class="pill ${esc(cls)}">${esc(txt)}</span>`;
 
       // Auth: send the stored bearer token; prompt for it only on a 401 (so a
       // no-auth local backend never prompts).
@@ -175,11 +180,11 @@
           const a = await (await authFetch('/api/accounts')).json();
           if (a.error) throw new Error(a.message || a.error);
           $('accounts').innerHTML = `
-            <div><strong>Treasury</strong> — fund this with test USDC (${a.network}): <span class="mono">${a.treasury}</span></div>
-            <div><strong>Spender</strong> — pulls funds: <span class="mono">${a.spender}</span></div>
-            <div style="margin-top:.35rem;color:#71717a">USDC <span class="mono">${a.usdcAddress}</span> · <a href="https://faucet.circle.com" target="_blank" rel="noopener">Circle faucet →</a></div>`;
+            <div><strong>Treasury</strong> — fund this with test USDC (${esc(a.network)}): <span class="mono">${esc(a.treasury)}</span></div>
+            <div><strong>Spender</strong> — pulls funds: <span class="mono">${esc(a.spender)}</span></div>
+            <div style="margin-top:.35rem;color:#71717a">USDC <span class="mono">${esc(a.usdcAddress)}</span> · <a href="https://faucet.circle.com" target="_blank" rel="noopener">Circle faucet →</a></div>`;
         } catch (e) {
-          $('accounts').innerHTML = '<span class="err">accounts unavailable (' + e.message + ') — check CDP creds</span>';
+          $('accounts').innerHTML = '<span class="err">accounts unavailable (' + esc(e.message) + ') — check CDP creds</span>';
         }
       }
 
@@ -187,10 +192,10 @@
         try {
           const rows = await (await authFetch('/api/sessions')).json();
           $('sessions').innerHTML = rows.map((s) => `<tr>
-            <td class="mono">${short(s.id)}</td><td>${s.agentId}</td>
-            <td>${s.network}${s.expiryEnforcedOnChain ? '' : ' <span class="risk" title="expiresAt is soft-only on Solana">expiry:soft</span>'}</td>
+            <td class="mono">${short(s.id)}</td><td>${esc(s.agentId)}</td>
+            <td>${esc(s.network)}${s.expiryEnforcedOnChain ? '' : ' <span class="risk" title="expiresAt is soft-only on Solana">expiry:soft</span>'}</td>
             <td>${pill(s.status, s.status)}</td>
-            <td>${s.maxAmountPerTx}</td><td>${s.maxAmountTotal}</td><td>${s.cumulativeSpent}</td><td>${s.remainingBudget}</td>
+            <td>${esc(s.maxAmountPerTx)}</td><td>${esc(s.maxAmountTotal)}</td><td>${esc(s.cumulativeSpent)}</td><td>${esc(s.remainingBudget)}</td>
             <td>${s.higherRisk ? '<span class="risk">higher_risk</span> ' : ''}${s.flaggedForReview ? '<span class="risk">flagged</span>' : ''}</td>
             <td class="mono">${short(s.permissionHash)}</td>
             <td>${s.status === 'revoked' ? '' : `<button class="danger" onclick="revoke('${s.id}')">Revoke</button>`}</td>
@@ -206,12 +211,12 @@
         try {
           const rows = await (await authFetch('/api/audit?' + p.toString())).json();
           $('audit').innerHTML = rows.map((r) => `<tr>
-            <td>${new Date(r.timestamp * 1000).toLocaleString()}</td><td>${r.agentId}</td>
+            <td>${new Date(r.timestamp * 1000).toLocaleString()}</td><td>${esc(r.agentId)}</td>
             <td class="mono">${short(r.sessionId)}</td>
-            <td>${pill(r.decision, r.decision)}</td><td>${r.reasonCode || '—'}</td>
-            <td>${r.requestedAmount ?? '—'}</td><td class="mono">${short(r.recipient)}</td>
-            <td>${(r.riskFlags || []).join(', ') || '—'}</td>
-            <td class="mono">${short(r.txHash)}</td><td>${r.onchainStatus || '—'}</td>
+            <td>${pill(r.decision, r.decision)}</td><td>${esc(r.reasonCode || '—')}</td>
+            <td>${esc(r.requestedAmount ?? '—')}</td><td class="mono">${short(r.recipient)}</td>
+            <td>${esc((r.riskFlags || []).join(', ') || '—')}</td>
+            <td class="mono">${short(r.txHash)}</td><td>${esc(r.onchainStatus || '—')}</td>
           </tr>`).join('') || '<tr><td colspan="10" style="color:#71717a">no audit rows</td></tr>';
         } catch (e) { $('auditMsg').textContent = 'error: ' + e.message; $('auditMsg').className = 'msg err'; }
       }

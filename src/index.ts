@@ -1,9 +1,7 @@
 // Backend entrypoint. Fastify was chosen (per spec) for built-in schema
 // validation and low overhead; nothing in the CDP/x402 libraries requires
-// Express. Boots a server that serves the API routes and the static dashboard.
-//
-// At Checkpoint 1 the routes are stubs returning 501 — the server still starts,
-// so `npm run dev` proves the skeleton wires together end-to-end.
+// Express. Boots a server that serves the API routes (token-gated) and the
+// static dashboard, refusing to start on a mainnet network without API_TOKEN.
 
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -58,8 +56,15 @@ async function main() {
     app.log.warn('API_TOKEN not set — /api routes are UNAUTHENTICATED (local dev only).');
   }
   app.addHook('onRequest', async (req, reply) => {
-    const path = req.url.split('?')[0] ?? '';
-    if (!path.startsWith('/api/') || !authEnabled) return; // static + /health stay open
+    if (!authEnabled) return;
+    // Gate on the MATCHED ROUTE pattern, not the raw URL. The raw path can be
+    // percent-encoded (e.g. `/%61pi/...`) so that a naive `startsWith('/api/')`
+    // string check misses it, yet the router still decodes and dispatches it to
+    // the `/api/...` handler — a full auth bypass. `routeOptions.url` is the
+    // registered pattern (onRequest runs after routing), immune to that trick.
+    // Unmatched (404) and static/`/health` routes don't start with /api/ → open.
+    const routeUrl = req.routeOptions?.url ?? '';
+    if (!routeUrl.startsWith('/api/')) return;
     const header = req.headers['authorization'];
     const bearer = typeof header === 'string' && header.startsWith('Bearer ') ? header.slice(7) : null;
     const apiKey = typeof req.headers['x-api-key'] === 'string' ? (req.headers['x-api-key'] as string) : null;

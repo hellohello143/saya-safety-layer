@@ -40,4 +40,13 @@ describe('usdc money helpers (6 decimals, integer base units, no floats)', () =>
     expect(() => usdcToBaseUnits('abc')).toThrow();
     expect(() => usdcToBaseUnits('')).toThrow();
   });
+
+  it('throws on excess precision instead of silently rounding', () => {
+    // viem's parseUnits would round these; the primitive must reject them.
+    expect(() => usdcToBaseUnits('0.0000005')).toThrow(); // 7 dp
+    expect(() => usdcToBaseUnits('1.9999995')).toThrow();
+    expect(() => usdcToBaseUnits('0.1234567')).toThrow();
+    // exactly 6 dp is still fine
+    expect(usdcToBaseUnits('0.123456')).toBe(123_456n);
+  });
 });

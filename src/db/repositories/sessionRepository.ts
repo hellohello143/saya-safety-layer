@@ -185,7 +185,13 @@ export class SessionRepository {
       this.db.exec('COMMIT;');
       return { ok: true };
     } catch (err) {
-      this.db.exec('ROLLBACK;');
+      // The transaction may already be rolled back (e.g. an I/O error on COMMIT
+      // auto-rolls-back); guard so a secondary ROLLBACK error can't mask the real one.
+      try {
+        this.db.exec('ROLLBACK;');
+      } catch {
+        /* transaction already closed */
+      }
       throw err;
     }
   }
@@ -206,7 +212,11 @@ export class SessionRepository {
       }
       this.db.exec('COMMIT;');
     } catch (err) {
-      this.db.exec('ROLLBACK;');
+      try {
+        this.db.exec('ROLLBACK;');
+      } catch {
+        /* transaction already closed */
+      }
       throw err;
     }
   }

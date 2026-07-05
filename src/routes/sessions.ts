@@ -17,6 +17,21 @@ import type { SessionRow } from '../db/schema.js';
 
 const repo = new SessionRepository();
 
+// Serializes Solana session creation. SPL allows one delegate per token account,
+// so the "at most one active Solana session" check and the on-chain Approve must
+// not interleave: two concurrent creates could both pass the check and both
+// Approve (the second silently overwriting the first). This promise chain forces
+// them to run one at a time (single-process design).
+let solanaCreateLock: Promise<unknown> = Promise.resolve();
+function withSolanaLock<T>(fn: () => Promise<T>): Promise<T> {
+  const run = solanaCreateLock.then(fn, fn);
+  solanaCreateLock = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
 const usdcAmount = z
   .string()
   .regex(/^\d+(\.\d{1,6})?$/, 'must be a USDC amount with up to 6 decimal places');
@@ -110,62 +125,68 @@ export async function sessionRoutes(app: FastifyInstance): Promise<void> {
         ? body.allowedRecipients.map((a) => getAddress(a.toLowerCase() as `0x${string}`))
         : body.allowedRecipients;
 
-    // Solana: SPL allows one delegate per token account, so only one active Solana
-    // session on the shared treasury ATA at a time (option b). Reject with guidance.
-    if (isSolanaNetwork(network)) {
-      const active = await repo.list({ status: 'active' });
-      if (active.some((s) => isSolanaNetwork(s.network))) {
-        return reply.code(409).send({
-          error: 'solana_session_exists',
-          message:
-            'An active Solana session already exists. SPL delegation allows one delegate per token account — revoke it before issuing another (per-session token accounts are a planned upgrade).',
+    // The single-active-Solana-session check and the on-chain issuance must run as
+    // one atomic unit (see solanaCreateLock). EVM has no such constraint.
+    const doCreate = async () => {
+      // Solana: SPL allows one delegate per token account, so only one active Solana
+      // session on the shared treasury ATA at a time (option b). Reject with guidance.
+      if (isSolanaNetwork(network)) {
+        const active = await repo.list({ status: 'active' });
+        if (active.some((s) => isSolanaNetwork(s.network))) {
+          return reply.code(409).send({
+            error: 'solana_session_exists',
+            message:
+              'An active Solana session already exists. SPL delegation allows one delegate per token account — revoke it before issuing another (per-session token accounts are a planned upgrade).',
+          });
+        }
+      }
+
+      const id = randomUUID();
+      try {
+        const issued = await adapter.issueSessionKey({
+          sessionId: id,
+          agentId: body.agentId,
+          maxAmountPerTx: perTx,
+          maxAmountTotal: total,
+          expiresAt: body.expiresAt,
+          allowedRecipients: recipients,
         });
+
+        const now = Math.floor(Date.now() / 1000);
+        const row = await repo.create({
+          id,
+          agentId: body.agentId,
+          status: 'active',
+          network,
+          smartAccountAddress: issued.smartAccountAddress,
+          spenderAddress: issued.spenderAddress,
+          tokenAddress: issued.tokenAddress,
+          tokenAccount: issued.tokenAccount,
+          permissionHash: issued.permissionHash,
+          maxAmountPerTx: perTx.toString(),
+          maxAmountTotal: total.toString(),
+          expiresAt: body.expiresAt,
+          allowedRecipients: recipients,
+          higherRisk: issued.higherRisk,
+          flaggedForReview: false,
+          cumulativeSpent: '0',
+          createTxHash: issued.createTxHash,
+          revokeTxHash: null,
+          createdAt: now,
+          updatedAt: now,
+        });
+
+        return reply.code(201).send(serialize(row));
+      } catch (err) {
+        req.log.error({ err }, 'session issuance failed');
+        if (err instanceof OnchainError) {
+          return reply.code(502).send({ error: 'onchain_error', message: err.message });
+        }
+        return reply.code(502).send({ error: 'onchain_error', message: (err as Error).message });
       }
-    }
+    };
 
-    const id = randomUUID();
-    try {
-      const issued = await adapter.issueSessionKey({
-        sessionId: id,
-        agentId: body.agentId,
-        maxAmountPerTx: perTx,
-        maxAmountTotal: total,
-        expiresAt: body.expiresAt,
-        allowedRecipients: recipients,
-      });
-
-      const now = Math.floor(Date.now() / 1000);
-      const row = await repo.create({
-        id,
-        agentId: body.agentId,
-        status: 'active',
-        network,
-        smartAccountAddress: issued.smartAccountAddress,
-        spenderAddress: issued.spenderAddress,
-        tokenAddress: issued.tokenAddress,
-        tokenAccount: issued.tokenAccount,
-        permissionHash: issued.permissionHash,
-        maxAmountPerTx: perTx.toString(),
-        maxAmountTotal: total.toString(),
-        expiresAt: body.expiresAt,
-        allowedRecipients: recipients,
-        higherRisk: issued.higherRisk,
-        flaggedForReview: false,
-        cumulativeSpent: '0',
-        createTxHash: issued.createTxHash,
-        revokeTxHash: null,
-        createdAt: now,
-        updatedAt: now,
-      });
-
-      return reply.code(201).send(serialize(row));
-    } catch (err) {
-      req.log.error({ err }, 'session issuance failed');
-      if (err instanceof OnchainError) {
-        return reply.code(502).send({ error: 'onchain_error', message: err.message });
-      }
-      return reply.code(502).send({ error: 'onchain_error', message: (err as Error).message });
-    }
+    return isSolanaNetwork(network) ? withSolanaLock(doCreate) : doCreate();
   });
 
   // GET /api/sessions -> list (status, remaining budget, risk flags)
@@ -183,8 +204,16 @@ export async function sessionRoutes(app: FastifyInstance): Promise<void> {
     const base = serialize(row);
     const withOnchain = (req.query as { onchain?: string }).onchain === 'true';
     if (withOnchain) {
-      const onchain = await adapterFor(row.network).readOnchainStatus(row);
-      return reply.send({ ...base, onchain });
+      // A live chain read can fail (RPC error, or the network was disabled after
+      // this row was created). Map that to 502 onchain_error like the other
+      // on-chain routes, not the generic 500 the global handler would return.
+      try {
+        const onchain = await adapterFor(row.network).readOnchainStatus(row);
+        return reply.send({ ...base, onchain });
+      } catch (err) {
+        req.log.error({ err }, 'on-chain status read failed');
+        return reply.code(502).send({ error: 'onchain_error', message: (err as Error).message });
+      }
     }
     return reply.send(base);
   });

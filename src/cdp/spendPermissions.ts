@@ -22,7 +22,14 @@ import { readOnchainStatus, fetchPermissionByHash } from './onchain.js';
 
 /** Raised when an on-chain user operation does not complete successfully. */
 export class OnchainError extends Error {
-  constructor(message: string, readonly detail?: unknown) {
+  constructor(
+    message: string,
+    readonly detail?: unknown,
+    // True when the hop-1 pull MAY have landed on-chain (an ambiguous broadcast
+    // failure), so the caller must treat the cap as consumed and NOT release the
+    // reserve — resubmitting would risk a double-pull.
+    readonly possiblyConsumed = false,
+  ) {
     super(message);
     this.name = 'OnchainError';
   }
@@ -66,7 +73,7 @@ export async function issueSessionKey(params: IssueSessionKeyParams): Promise<Is
   const spendPermission = {
     account: params.smartAccountAddress as `0x${string}`,
     spender: params.spenderAddress as `0x${string}`,
-    token: 'usdc' as const, // auto-resolves to Base Sepolia USDC (0x036C...) on this network
+    token: 'usdc' as const, // SDK resolves 'usdc' to the canonical USDC for env.NETWORK (Base Sepolia 0x036C… / Base mainnet 0x8335…)
     allowance: params.maxAmountTotal,
     period,
     start,
@@ -86,12 +93,21 @@ export async function issueSessionKey(params: IssueSessionKeyParams): Promise<Is
   const createTxHash = result.transactionHash;
 
   // Recover the on-chain permissionHash by matching our unique salt in the list.
-  const list = await cdp.evm.listSpendPermissions({
-    address: params.smartAccountAddress as `0x${string}`,
-  });
-  const match = list.spendPermissions.find((p) => p.permission.salt === params.salt);
+  // The indexed list can lag the just-confirmed create tx, so retry with backoff
+  // (mirrors useSessionKey) rather than failing — and leaving an untracked but
+  // live on-chain permission — on a transient miss.
+  type PermList = Awaited<ReturnType<typeof cdp.evm.listSpendPermissions>>;
+  let match: PermList['spendPermissions'][number] | undefined;
+  for (let attempt = 1; attempt <= 4; attempt++) {
+    const list: PermList = await cdp.evm.listSpendPermissions({
+      address: params.smartAccountAddress as `0x${string}`,
+    });
+    match = list.spendPermissions.find((p) => p.permission.salt === params.salt);
+    if (match) break;
+    if (attempt < 4) await new Promise((r) => setTimeout(r, 1500 * attempt));
+  }
   if (!match) {
-    throw new OnchainError('created permission not found in listSpendPermissions (salt mismatch)');
+    throw new OnchainError('created permission not found in listSpendPermissions after retries (indexer lag or salt mismatch)');
   }
 
   return {
@@ -120,11 +136,23 @@ export async function useSessionKey(
     throw new OnchainError('permission not found on-chain for useSpendPermission');
   }
 
+  // Baseline the on-chain period spend so a retry can tell whether a FAILED attempt
+  // actually pulled funds (an ambiguous broadcast failure). null = couldn't read;
+  // we then fall back to the original retry behavior.
+  let spentBefore: bigint | null = null;
+  try {
+    const s0 = await readOnchainStatus(smartAccountAddress, permissionHash);
+    if (s0.spentThisPeriod !== null) spentBefore = BigInt(s0.spentThisPeriod);
+  } catch {
+    spentBefore = null;
+  }
+
   // Retry ONLY the submission call. A freshly-issued permission or a not-yet-
   // deployed spender can make the first useSpendPermission simulation revert on
-  // Base Sepolia before state propagates. Retrying the submission is safe because
-  // no user op has been broadcast yet. Once we have a userOpHash we do NOT retry —
-  // that would risk a double-spend if waitForUserOperation is what fails.
+  // Base Sepolia before state propagates. That case is pre-broadcast and safe to
+  // retry — but an ambiguous failure could occur AFTER the op was broadcast, so
+  // before each retry we check whether on-chain spend advanced; if it did, a prior
+  // attempt landed and we must NOT resubmit (double-pull).
   const maxAttempts = 4;
   let spend: Awaited<ReturnType<typeof spender.useSpendPermission>> | undefined;
   let lastErr: unknown;
@@ -135,7 +163,22 @@ export async function useSessionKey(
     } catch (err) {
       lastErr = err;
       console.error(`[useSessionKey] submit attempt ${attempt}/${maxAttempts} failed: ${(err as Error).message}`);
-      if (attempt < maxAttempts) await new Promise((r) => setTimeout(r, 1500 * attempt));
+      if (attempt >= maxAttempts) break;
+      if (spentBefore !== null) {
+        try {
+          const now = await readOnchainStatus(smartAccountAddress, permissionHash);
+          if (now.spentThisPeriod !== null && BigInt(now.spentThisPeriod) >= spentBefore + value) {
+            throw new OnchainError(
+              'hop-1 outcome uncertain: a prior attempt appears to have pulled funds on-chain; not resubmitting',
+              lastErr,
+              /* possiblyConsumed */ true,
+            );
+          }
+        } catch (checkErr) {
+          if (checkErr instanceof OnchainError && checkErr.possiblyConsumed) throw checkErr;
+        }
+      }
+      await new Promise((r) => setTimeout(r, 1500 * attempt));
     }
   }
   if (!spend) {
@@ -145,7 +188,19 @@ export async function useSessionKey(
     );
   }
 
-  const receipt = await spender.waitForUserOperation({ userOpHash: spend.userOpHash });
+  // We hold a userOpHash: the op WAS broadcast. If the wait itself fails, the op
+  // may still land, so treat that as possibly-consumed (retain the reserve). A
+  // completed-but-reverted op (no transactionHash) rolled back — cap NOT consumed.
+  let receipt: Awaited<ReturnType<typeof spender.waitForUserOperation>>;
+  try {
+    receipt = await spender.waitForUserOperation({ userOpHash: spend.userOpHash });
+  } catch (err) {
+    throw new OnchainError(
+      `hop-1 wait failed after broadcast (outcome uncertain): ${(err as Error).message}`,
+      err,
+      /* possiblyConsumed */ true,
+    );
+  }
   if (!('transactionHash' in receipt)) {
     throw new OnchainError('useSpendPermission user op did not complete', receipt);
   }

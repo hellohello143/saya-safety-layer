@@ -53,10 +53,22 @@ export class SolanaOnchainError extends Error {
   constructor(
     message: string,
     readonly detail?: unknown,
+    // True when a transfer MAY have already landed on-chain (an ambiguous
+    // broadcast failure), so the caller must treat the cap as consumed and NOT
+    // release the reserve — the alternative would be a double-payment.
+    readonly capMaybeConsumed = false,
   ) {
     super(message);
     this.name = 'SolanaOnchainError';
   }
+}
+
+// Heuristic: did this error mean "the token account genuinely doesn't exist" (a
+// real not-found) rather than "we couldn't read it" (RPC outage/timeout)? Only
+// the former is safe to report as found:false; the latter must propagate.
+function isAccountNotFound(err: unknown): boolean {
+  const msg = (err as Error)?.message ?? '';
+  return /not\s*found|does not exist|could not be found|no account/i.test(msg);
 }
 
 function solNetId(): SolanaNetworkId {
@@ -166,14 +178,43 @@ export async function issueSolanaSessionKey(maxAmountTotal: bigint): Promise<Iss
   };
 }
 
-/** REAL on-chain revocation: Revoke clears the delegate. Owner (treasury) signs. */
-export async function revokeSolanaSessionKey(tokenAccount: string): Promise<string> {
+/**
+ * REAL on-chain revocation: Revoke clears the delegate. Owner (treasury) signs.
+ * sendTransaction returns after BROADCAST, not finalization, and a tx can be
+ * dropped — so for the safety-critical revoke direction we confirm the delegate
+ * actually cleared on-chain (resubmitting once if needed; Revoke is idempotent).
+ * Throws if it can't be confirmed, so callers never record a false 'revoked'.
+ */
+export async function revokeSolanaSessionKey(tokenAccount: string, expectedDelegate?: string): Promise<string> {
   const treasury = await getSolanaTreasury();
-  const ix = getRevokeInstruction({
-    source: address(tokenAccount),
-    owner: createNoopSigner(address(treasury.address)),
-  });
-  return submit(treasury, [ix]);
+  const buildIx = () =>
+    getRevokeInstruction({
+      source: address(tokenAccount),
+      owner: createNoopSigner(address(treasury.address)),
+    });
+
+  let signature = await submit(treasury, [buildIx()]);
+  // Poll until the delegate is cleared. ~18s window; resubmit once at the halfway
+  // point in case the first broadcast was dropped.
+  for (let i = 0; i < 12; i++) {
+    await new Promise((r) => setTimeout(r, 1500));
+    try {
+      const acct = await fetchToken(rpc(), address(tokenAccount));
+      const delegate = optionValue<string>(acct.data.delegate);
+      const cleared = delegate === null || (expectedDelegate !== undefined && delegate !== expectedDelegate);
+      if (cleared) return signature;
+    } catch {
+      /* transient read failure — keep polling */
+    }
+    if (i === 6) {
+      try {
+        signature = await submit(treasury, [buildIx()]);
+      } catch {
+        /* resubmit failed; keep polling the original */
+      }
+    }
+  }
+  throw new SolanaOnchainError(`revoke not confirmed on-chain for token account ${tokenAccount}`);
 }
 
 // @solana/kit Option -> value | null (handles both raw and {__option} shapes).
@@ -204,8 +245,14 @@ export async function readSolanaOnchainStatus(
     const delegatedAmount = BigInt(acct.data.delegatedAmount as unknown as bigint);
     const live = delegate !== null && delegate === expectedDelegate && delegatedAmount > 0n;
     return { found: true, delegate, delegatedAmount, live };
-  } catch {
-    return { found: false, delegate: null, delegatedAmount: 0n, live: false };
+  } catch (err) {
+    // A genuinely-absent account is a real not-found; anything else (RPC outage,
+    // timeout, decode error) must propagate so callers don't mistake a transient
+    // failure for a missing/zeroed delegation.
+    if (isAccountNotFound(err)) {
+      return { found: false, delegate: null, delegatedAmount: 0n, live: false };
+    }
+    throw new SolanaOnchainError(`could not read token account ${tokenAccount}: ${(err as Error).message}`, err);
   }
 }
 
@@ -229,11 +276,13 @@ export async function executeSolanaPayment(
   treasuryTokenAccount: string,
   merchantWallet: string,
   amount: bigint,
+  expectedDelegate?: string,
 ): Promise<{ signature: string }> {
   const spender = await getSolanaSpender();
   const cfg = solCfg();
   const merchantAta = await usdcAtaOf(merchantWallet);
   const payer = createNoopSigner(address(spender.address));
+  const delegate = expectedDelegate ?? spender.address;
 
   const createIx = getCreateAssociatedTokenIdempotentInstruction({
     payer,
@@ -250,6 +299,19 @@ export async function executeSolanaPayment(
     decimals: cfg.usdcDecimals,
   });
 
+  // Snapshot the on-chain delegated_amount so a failed-then-retried attempt can
+  // detect whether the FAILED attempt actually landed. sendTransaction returns
+  // after broadcast, and if its response is lost we can't tell from the error
+  // alone — a blind resubmit would DOUBLE-PAY the merchant. Best-effort: if the
+  // snapshot read fails we fall back to the original retry behavior.
+  let allowanceBefore: bigint | null = null;
+  try {
+    const s0 = await readSolanaOnchainStatus(treasuryTokenAccount, delegate);
+    if (s0.found) allowanceBefore = s0.delegatedAmount;
+  } catch {
+    allowanceBefore = null;
+  }
+
   // Retry the submission (fresh blockhash each attempt) to ride out propagation of
   // a just-issued delegation. Logs the real error so failures are diagnosable.
   let lastErr: unknown;
@@ -260,7 +322,27 @@ export async function executeSolanaPayment(
     } catch (err) {
       lastErr = err;
       console.error(`[solana pay] attempt ${attempt}/3 failed: ${(err as Error).message}`);
-      if (attempt < 3) await new Promise((r) => setTimeout(r, 2000 * attempt));
+      if (attempt >= 3) break;
+      // Before resubmitting, check whether the just-failed attempt actually landed
+      // (the delegated_amount would have dropped). If so, the merchant was paid —
+      // do NOT resubmit; fail closed as "settlement uncertain" with the cap marked
+      // consumed so the reserve is retained.
+      if (allowanceBefore !== null) {
+        try {
+          const now = await readSolanaOnchainStatus(treasuryTokenAccount, delegate);
+          if (now.found && now.delegatedAmount <= allowanceBefore - amount) {
+            throw new SolanaOnchainError(
+              'settlement uncertain: a prior attempt appears to have landed on-chain; not resubmitting to avoid double-payment',
+              err,
+              /* capMaybeConsumed */ true,
+            );
+          }
+        } catch (checkErr) {
+          if (checkErr instanceof SolanaOnchainError && checkErr.capMaybeConsumed) throw checkErr;
+          // couldn't verify — fall through to the (best-effort) retry
+        }
+      }
+      await new Promise((r) => setTimeout(r, 2000 * attempt));
     }
   }
   throw new SolanaOnchainError(`transfer failed after retries: ${(lastErr as Error)?.message}`, lastErr);

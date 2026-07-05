@@ -39,16 +39,26 @@ export interface SelectedRequirement {
 }
 
 /**
- * Pick a payment option from a 402 body. Prefers scheme='exact' on the expected
- * network; returns null if none look like an exact-scheme option. Asset/network
- * mismatches are deliberately NOT rejected here — the policy engine returns the
- * precise WRONG_ASSET / WRONG_NETWORK reason code.
+ * Pick a payment option from a 402 body. The `accepts` array is a MENU of
+ * alternatives, so prefer, in order: an exact-scheme option on the expected
+ * network AND asset, then any on the expected network, then any usable option —
+ * so that a seller offering e.g. both DAI and USDC on our chain doesn't get the
+ * wrong one picked and rejected. Returns null if none look like an exact-scheme
+ * option. Network/asset mismatches (when NO compliant option exists) are NOT
+ * masked here — the policy engine still returns the precise WRONG_ASSET /
+ * WRONG_NETWORK reason code.
  */
 const INTEGER_STRING = /^[0-9]+$/;
+
+// Same chain-aware rule as the policy engine: EVM hex is case-insensitive,
+// Solana base58 is case-sensitive.
+const sameAsset = (a: string, b: string) =>
+  a.startsWith('0x') && b.startsWith('0x') ? a.toLowerCase() === b.toLowerCase() : a === b;
 
 export function selectRequirement(
   body: Http402Body,
   expectedNetwork: string,
+  expectedAsset?: string,
 ): SelectedRequirement | null {
   // A usable option must be exact-scheme AND carry a well-formed integer base-unit
   // amount. This filters out malformed/negative/empty/decimal/hex amounts from a
@@ -59,7 +69,9 @@ export function selectRequirement(
     (r) => r.scheme === 'exact' && typeof r.maxAmountRequired === 'string' && INTEGER_STRING.test(r.maxAmountRequired),
   );
   if (usable.length === 0) return null;
-  const chosen = usable.find((r) => r.network === expectedNetwork) ?? usable[0]!;
+  const onNetwork = usable.filter((r) => r.network === expectedNetwork);
+  const pool = onNetwork.length > 0 ? onNetwork : usable;
+  const chosen = (expectedAsset && pool.find((r) => sameAsset(r.asset, expectedAsset))) || pool[0]!;
   return {
     scheme: chosen.scheme,
     network: chosen.network,

@@ -14,14 +14,58 @@
 
 import { SessionRepository } from '../db/repositories/sessionRepository.js';
 import { evaluatePolicy, type PaymentIntent } from '../policy/policyEngine.js';
-import { checkBreaker, tripBreaker } from '../policy/circuitBreaker.js';
+import { checkBreaker, tripBreaker, beginInFlight, endInFlight } from '../policy/circuitBreaker.js';
 import { recordIntent } from '../audit/auditLog.js';
 import { adapterFor } from '../chains/index.js';
 import { PaymentError } from '../chains/types.js';
+import { loadEnv } from '../config/env.js';
 import { selectRequirement, type Http402Body, type SelectedRequirement } from './types.js';
 import type { RejectionReason } from '../policy/reasonCodes.js';
 
 const sessionRepo = new SessionRepository();
+
+// Raw on-chain error messages (from viem/CDP/Solana) can embed RPC endpoint URLs
+// and internal addresses. Only surface them to the (untrusted-by-design) caller
+// when the whole deployment is testnet; on mainnet they are logged server-side
+// and redacted from the response.
+const _env = loadEnv();
+const EXPOSE_DETAIL = _env.IS_TESTNET && (!_env.SOLANA_ENABLED || _env.SOLANA_IS_TESTNET);
+
+/**
+ * SSRF guard. The target URL is caller-supplied and its response body can be
+ * returned verbatim (the no-payment path), so it must be a PUBLIC http(s) URL —
+ * never an internal/loopback/link-local host (e.g. cloud metadata at 169.254.169.254).
+ * Host matching is on literals only (no DNS resolution): sync, and it keeps the
+ * mocked-fetch tests (bare hostnames) working.
+ */
+function isBlockedHost(host: string): boolean {
+  const h = host.toLowerCase().replace(/^\[|\]$/g, ''); // strip IPv6 brackets
+  if (h === 'localhost' || h.endsWith('.localhost') || h === '::1' || h === '::') return true;
+  if (h.endsWith('.internal') || h.endsWith('.local')) return true;
+  const m = h.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (m) {
+    const a = Number(m[1]);
+    const b = Number(m[2]);
+    if (a === 0 || a === 127 || a === 10) return true;
+    if (a === 169 && b === 254) return true; // link-local + cloud metadata
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 100 && b >= 64 && b <= 127) return true; // carrier-grade NAT
+  }
+  if (h.startsWith('fc') || h.startsWith('fd') || h.startsWith('fe80')) return true; // IPv6 ULA/link-local
+  return false;
+}
+
+function isSafeTargetUrl(raw: string): boolean {
+  let u: URL;
+  try {
+    u = new URL(raw);
+  } catch {
+    return false;
+  }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
+  return !isBlockedHost(u.hostname);
+}
 
 export interface PayRequest {
   sessionId: string;
@@ -52,8 +96,11 @@ async function readBody(res: Response): Promise<unknown> {
 export async function payForResource(req: PayRequest): Promise<PayResult> {
   const session = await sessionRepo.getById(req.sessionId);
   const baseRisk = session?.higherRisk ? ['no_allowlist_session'] : [];
+  let inFlightHeld = false;
 
-  // Always log exactly one audit row per terminal path (spec §2.5).
+  // Always log exactly one audit row per terminal path (spec §2.5). The in-flight
+  // release happens AFTER the row commits so the breaker's live count never dips
+  // below the true concurrent load.
   const finish = async (
     result: PayResult,
     fields: { amount?: bigint; recipient?: string } = {},
@@ -71,6 +118,10 @@ export async function payForResource(req: PayRequest): Promise<PayResult> {
       txHash: result.txHash,
       onchainStatus: result.txHash ? 'confirmed' : undefined,
     });
+    if (inFlightHeld && session) {
+      endInFlight(session.id);
+      inFlightHeld = false;
+    }
     return result;
   };
 
@@ -97,19 +148,44 @@ export async function payForResource(req: PayRequest): Promise<PayResult> {
       attemptsInWindow: breaker.attemptsInWindow,
     });
   }
+  // Passed the breaker: count this attempt as in-flight until its audit row commits.
+  beginInFlight(session.id);
+  inFlightHeld = true;
+
+  // Liveness + SSRF guard BEFORE any outbound request. Only an active, unexpired
+  // session may drive a fetch (the no-payment path returns the body verbatim, so a
+  // non-active session must not reach it), and the target must be a public http(s)
+  // URL. Policy re-checks status authoritatively on the 402 path; this closes the
+  // no-payment path too.
+  if (session.status !== 'active' || Math.floor(Date.now() / 1000) >= session.expiresAt) {
+    const reason: RejectionReason =
+      session.status === 'revoked'
+        ? 'SESSION_REVOKED'
+        : session.status === 'suspended'
+          ? 'SESSION_SUSPENDED'
+          : 'SESSION_EXPIRED';
+    return finish({ status: 'rejected_policy', reason, riskFlags: baseRisk });
+  }
+  if (!isSafeTargetUrl(req.targetUrl)) {
+    return finish({ status: 'rejected_policy', reason: 'INVALID_TARGET_URL', riskFlags: baseRisk });
+  }
 
   // 1. Request the target.
   let res: Response;
   try {
     res = await fetch(req.targetUrl, { method: req.method ?? 'GET' });
   } catch {
-    return finish({ status: 'rejected_onchain', reason: 'ONCHAIN_ERROR', riskFlags: baseRisk });
+    // Seller unreachable (DNS/connect/TLS) — no chain interaction happened, so this
+    // is NOT an on-chain error; keep the on-chain-failure signal in the audit clean.
+    return finish({ status: 'rejected_onchain', reason: 'TARGET_UNREACHABLE', riskFlags: baseRisk });
   }
 
-  // No payment required -> return the resource, no spend.
+  // No payment required -> return the resource, no spend. A non-2xx (500/403/404)
+  // is still surfaced but flagged so it isn't mistaken for a delivered resource.
   if (res.status !== 402) {
     const resource = await readBody(res);
-    return finish({ status: 'approved', resource, riskFlags: baseRisk });
+    const flags = res.ok ? baseRisk : [...baseRisk, 'target_error_status'];
+    return finish({ status: 'approved', resource, riskFlags: flags });
   }
 
   // 2. Parse the 402 payment requirements. selectRequirement is hardened against
@@ -118,8 +194,9 @@ export async function payForResource(req: PayRequest): Promise<PayResult> {
   const body = (await readBody(res)) as Http402Body | null;
   let requirement: SelectedRequirement | null = null;
   try {
-    // Select the requirement for THIS session's chain (the seller lists one per network).
-    requirement = body ? selectRequirement(body, session.network) : null;
+    // Select the requirement for THIS session's chain AND token (the seller may
+    // list several options; prefer the one we can actually pay).
+    requirement = body ? selectRequirement(body, session.network, session.tokenAddress) : null;
   } catch {
     requirement = null;
   }
@@ -162,16 +239,20 @@ export async function payForResource(req: PayRequest): Promise<PayResult> {
       asset: intent.asset,
     });
   } catch (err) {
+    const message = (err as Error).message;
+    // Log the raw cause server-side regardless; only return it to the caller on testnet.
+    console.error(`[pay] on-chain failure for session ${session.id}: ${message}`);
+    const detail = EXPOSE_DETAIL ? message : undefined;
     if (err instanceof PaymentError) {
       if (!err.capConsumed) sessionRepo.releaseSpend(session.id, intent.amount);
       return finish(
-        { status: 'rejected_onchain', reason: err.reason, detail: err.message, riskFlags: [...decision.riskFlags, ...err.riskFlags] },
+        { status: 'rejected_onchain', reason: err.reason, detail, riskFlags: [...decision.riskFlags, ...err.riskFlags] },
         auditFields,
       );
     }
     sessionRepo.releaseSpend(session.id, intent.amount);
     return finish(
-      { status: 'rejected_onchain', reason: 'ONCHAIN_ERROR', detail: (err as Error).message, riskFlags: decision.riskFlags },
+      { status: 'rejected_onchain', reason: 'ONCHAIN_ERROR', detail, riskFlags: decision.riskFlags },
       auditFields,
     );
   }
@@ -185,7 +266,7 @@ export async function payForResource(req: PayRequest): Promise<PayResult> {
       headers: { 'X-PAYMENT': settlement.paymentHeader },
     });
     resource = await readBody(paid);
-    delivered = paid.status === 200; // seller confirmed the on-chain payment
+    delivered = paid.ok; // any 2xx = seller served the resource after confirming payment
   } catch {
     delivered = false; // resource fetch failed after settlement; funds already paid
   }

@@ -11,9 +11,9 @@
 // Account model (decision — see CP2 report):
 //   TREASURY = the agent's smart account (holds test USDC; the permission's
 //     `account`). Gasless via paymaster.
-//   SPENDER  = a CDP EVM account (EOA); the permission's `spender`, i.e. the
-//     address funds are pulled TO. It later pays merchants via x402. Because
-//     spend() pins the payee to this address, the spender key is high-value.
+//   SPENDER  = a CDP smart account; the permission's `spender`, i.e. the address
+//     funds are pulled TO. It later pays merchants via x402. Because spend() pins
+//     the payee to this address, the spender key is high-value.
 
 import { getCdpClient, type TreasurySmartAccount } from './client.js';
 import { loadEnv } from '../config/env.js';

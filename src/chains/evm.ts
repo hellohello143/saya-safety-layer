@@ -24,7 +24,9 @@ export function makeEvmAdapter(network: EvmNetworkId): ChainAdapter {
     family: 'evm',
     network,
 
-    validateAddress: (addr) => isAddress(addr, { strict: false }),
+    // strict:true keeps EIP-55 checksum protection: a mixed-case address with a
+    // typo'd checksum is rejected, while all-lowercase input still passes.
+    validateAddress: (addr) => isAddress(addr, { strict: true }),
 
     async issueSessionKey(p: IssueSessionParams): Promise<IssuedSession> {
       const treasury = await getTreasury();
@@ -57,8 +59,16 @@ export function makeEvmAdapter(network: EvmNetworkId): ChainAdapter {
       try {
         await useSessionKey(session.smartAccountAddress, session.permissionHash, req.amount);
       } catch (err) {
+        // An ambiguous (possibly-landed) hop-1 failure marks the cap consumed so the
+        // reserve is NOT released and the soft ledger doesn't drift below on-chain spend.
+        const possiblyConsumed = err instanceof OnchainError && err.possiblyConsumed;
         const reason = err instanceof OnchainError ? 'ONCHAIN_REJECTED' : 'ONCHAIN_ERROR';
-        throw new PaymentError(`hop-1 pull failed: ${(err as Error).message}`, false, reason);
+        throw new PaymentError(
+          `hop-1 pull failed: ${(err as Error).message}`,
+          possiblyConsumed,
+          reason,
+          possiblyConsumed ? ['settlement_uncertain'] : [],
+        );
       }
       // hop 2: pay the merchant + build the proof header. Cap already consumed.
       try {

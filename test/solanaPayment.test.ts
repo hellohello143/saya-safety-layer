@@ -91,8 +91,9 @@ describe('Solana payment routing (single-hop)', () => {
     const r = await payForResource({ sessionId: 's1', targetUrl: 'http://seller/resource' });
     expect(r.status).toBe('approved');
     expect(r.txHash).toBe('solsig123');
-    // delegate transfers from the treasury ATA to the merchant for the price
-    expect(h.executeSolanaPayment).toHaveBeenCalledWith(TREASURY_ATA, MERCHANT, usdcToBaseUnits('0.01'));
+    // delegate transfers from the treasury ATA to the merchant for the price;
+    // the delegate address is passed so a retry can detect a landed prior attempt.
+    expect(h.executeSolanaPayment).toHaveBeenCalledWith(TREASURY_ATA, MERCHANT, usdcToBaseUnits('0.01'), 'DELEGATEaddr');
     const audit = await queryAudit({ sessionId: 's1' });
     expect(audit[0]!.network).toBe('solana-devnet');
     expect((await repo.getById('s1'))?.cumulativeSpent).toBe('10000');
