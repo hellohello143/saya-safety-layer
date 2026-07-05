@@ -46,6 +46,7 @@
 
       .eyebrow { font-size: 11px; letter-spacing: 0.24em; text-transform: uppercase; color: var(--muted); margin: 0 0 20px; }
       .eyebrow .sol { background: linear-gradient(90deg, var(--sol-purple), var(--sol-green)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+      .eyebrow .base { background: linear-gradient(90deg, var(--base-soft), var(--base)); -webkit-background-clip: text; background-clip: text; color: transparent; }
       h2.head { font-size: clamp(1.7rem, 4vw, 2.9rem); font-weight: 700; line-height: 1.06; letter-spacing: -0.02em; margin: 0 0 20px; text-wrap: balance; max-width: 22ch; }
       .lede { max-width: 62ch; color: var(--muted); font-size: 1.02rem; margin: 0; }
       .lede b { color: var(--fg); font-weight: 700; }
@@ -224,7 +225,7 @@
       <div class="wrap hero">
         <div class="hero__grid">
           <div>
-            <p class="eyebrow">Payment safety layer · <span class="sol">Solana</span> + Base</p>
+            <p class="eyebrow">Payment safety layer · <span class="sol">Solana</span> + <span class="base">Base</span></p>
             <h1>Your agent can spend.<br /><span class="dim">It can't overspend.</span></h1>
             <p class="hero__sub">Saya issues each AI agent a scoped session key with a spending cap the <b>blockchain itself enforces</b> — not a server that can be bypassed. Built <span class="sol">Solana-first</span> (also on Base), it pays for APIs, compute, data, or other agents over x402 in USDC. A bug, a jailbreak, or a runaway loop can never spend past the cap you set.</p>
             <div class="hero__cta">
