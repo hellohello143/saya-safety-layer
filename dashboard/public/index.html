@@ -3,93 +3,351 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Agent Payment Safety Layer — Ops Dashboard</title>
+    <title>Saya — payment safety console</title>
     <style>
-      :root { --bd: #d4d4d8; --mut: #71717a; --bg: #fafafa; --risk: #b45309; }
+      :root {
+        --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        --mono: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Menlo, Consolas, monospace;
+
+        --bg: #e7ebf1;
+        --panel: #ffffff;
+        --inset: #f5f7f9;
+        --ink: #14181f;
+        --ink-2: #59616d;
+        --ink-3: #8b929d;
+        --line: #dbe0e8;
+        --line-2: #e9edf2;
+
+        --teal: #0c7c67;   /* on-chain: chain-enforced */
+        --teal-bg: #e2f4ef;
+        --teal-line: #a6dccf;
+        --amber: #97620f;  /* policy: backend-enforced (soft) */
+        --amber-bg: #faf0dd;
+        --amber-line: #ecd3a6;
+        --red: #b3261e;    /* danger / revoked / rejected */
+        --red-bg: #fcecea;
+        --red-line: #f1c3bf;
+        --focus: #2456c9;
+      }
       * { box-sizing: border-box; }
-      body { font-family: ui-sans-serif, system-ui, sans-serif; margin: 0; color: #18181b; background: var(--bg); }
-      header { padding: 1rem 1.5rem; background: #fff; border-bottom: 1px solid var(--bd); }
-      h1 { font-size: 1.15rem; margin: 0; }
-      .warn { background: #fff3cd; border: 1px solid #ffe08a; padding: .5rem .75rem; border-radius: 6px; font-size: .85rem; margin-top: .5rem; }
-      main { padding: 1.5rem; max-width: 1100px; margin: 0 auto; display: grid; gap: 1.5rem; }
-      section { background: #fff; border: 1px solid var(--bd); border-radius: 8px; padding: 1rem 1.25rem; }
-      h2 { font-size: .95rem; margin: 0 0 .75rem; }
-      label { display: block; font-size: .78rem; color: var(--mut); margin: .4rem 0 .1rem; }
-      input, select, button { font: inherit; padding: .4rem .5rem; border: 1px solid var(--bd); border-radius: 5px; }
-      .row { display: flex; flex-wrap: wrap; gap: .75rem; align-items: end; }
-      .row > div { flex: 1; min-width: 140px; }
-      button { background: #18181b; color: #fff; border-color: #18181b; cursor: pointer; }
-      button.secondary { background: #fff; color: #18181b; }
-      button.danger { background: #fff; color: #b91c1c; border-color: #e4a3a3; }
-      table { width: 100%; border-collapse: collapse; font-size: .82rem; }
-      th, td { text-align: left; padding: .4rem .5rem; border-bottom: 1px solid #efeff1; white-space: nowrap; }
-      th { color: var(--mut); font-weight: 600; }
-      .tablewrap { overflow-x: auto; }
-      .pill { font-size: .72rem; padding: .1rem .45rem; border-radius: 999px; border: 1px solid var(--bd); }
-      .active { background: #ecfdf5; color: #047857; border-color: #a7f3d0; }
-      .revoked, .rejected_onchain { background: #fef2f2; color: #b91c1c; border-color: #fecaca; }
-      .suspended, .expired, .rejected_policy { background: #fffbeb; color: #b45309; border-color: #fde68a; }
-      .approved { background: #ecfdf5; color: #047857; border-color: #a7f3d0; }
-      .risk { color: var(--risk); font-weight: 600; }
-      .mono { font-family: ui-monospace, monospace; font-size: .76rem; }
-      .msg { font-size: .8rem; margin-top: .5rem; min-height: 1rem; }
-      .err { color: #b91c1c; } .ok { color: #047857; }
+      html, body { margin: 0; }
+      body {
+        font-family: var(--sans);
+        color: var(--ink);
+        background: var(--bg);
+        font-size: 14px;
+        line-height: 1.5;
+        -webkit-font-smoothing: antialiased;
+      }
+      .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+      a { color: var(--teal); }
+
+      /* ---- eyebrow / structural labels ---- */
+      .eyebrow {
+        font-family: var(--mono);
+        font-size: 10.5px;
+        letter-spacing: .16em;
+        text-transform: uppercase;
+        color: var(--ink-3);
+      }
+
+      /* ---- top arming rule: the console reads its own risk level ---- */
+      .arm { height: 3px; background: var(--teal); }
+      body[data-mode="mainnet"] .arm {
+        background: repeating-linear-gradient(90deg, var(--amber) 0 14px, #c98a2a 14px 28px);
+      }
+
+      /* ---- header ---- */
+      header {
+        background: var(--panel);
+        border-bottom: 1px solid var(--line);
+        padding: 14px clamp(16px, 4vw, 40px);
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 10px 22px;
+      }
+      .brand { display: flex; align-items: baseline; gap: 12px; margin-right: auto; }
+      .wordmark {
+        font-family: var(--mono);
+        font-weight: 700;
+        font-size: 19px;
+        letter-spacing: .34em;
+        text-transform: uppercase;
+        padding-right: .34em; /* balance the tracking */
+      }
+      .tagline { font-size: 12.5px; color: var(--ink-2); }
+      .tagline b { color: var(--ink); font-weight: 600; }
+      .status { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+      .chip {
+        font-family: var(--mono);
+        font-size: 11px;
+        letter-spacing: .02em;
+        padding: 3px 8px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: var(--inset);
+        color: var(--ink-2);
+        white-space: nowrap;
+      }
+      .chip .fam { color: var(--ink-3); }
+      .mode {
+        font-family: var(--mono);
+        font-size: 11px;
+        letter-spacing: .08em;
+        text-transform: uppercase;
+        padding: 3px 9px;
+        border-radius: 999px;
+        border: 1px solid var(--teal-line);
+        background: var(--teal-bg);
+        color: var(--teal);
+      }
+      body[data-mode="mainnet"] .mode {
+        border-color: var(--amber-line);
+        background: var(--amber-bg);
+        color: var(--amber);
+      }
+      .iconbtn {
+        display: inline-flex; align-items: center; gap: 6px;
+        font-family: var(--mono); font-size: 11px;
+        padding: 3px 9px 3px 7px;
+        border-radius: 999px; border: 1px solid var(--line);
+        background: var(--panel); color: var(--ink-2); cursor: pointer;
+      }
+      .iconbtn:hover { border-color: var(--ink-3); color: var(--ink); }
+      .iconbtn svg { width: 12px; height: 12px; }
+      .iconbtn .dot { width: 7px; height: 7px; border-radius: 999px; background: var(--ink-3); }
+      .iconbtn.set .dot { background: var(--teal); }
+
+      /* ---- layout ---- */
+      main {
+        max-width: 1120px;
+        margin: 0 auto;
+        padding: clamp(16px, 3vw, 30px) clamp(16px, 4vw, 40px) 60px;
+        display: grid;
+        gap: 18px;
+      }
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 16px 18px;
+      }
+      .panel > .head {
+        display: flex; align-items: center; gap: 12px;
+        margin-bottom: 14px;
+      }
+      .panel > .head .eyebrow { margin-right: auto; }
+
+      /* ---- accounts strip ---- */
+      .acct { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+      .acct .card { border: 1px solid var(--line-2); border-radius: 8px; padding: 11px 12px; background: var(--inset); }
+      .acct .role { font-size: 12px; color: var(--ink-2); margin-bottom: 4px; }
+      .acct .role b { color: var(--ink); }
+      .addr { display: flex; align-items: center; gap: 6px; }
+      .addr .mono { font-size: 12.5px; overflow-wrap: anywhere; }
+      .acct .meta { font-size: 11.5px; color: var(--ink-3); margin-top: 6px; }
+      .copy {
+        flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;
+        width: 22px; height: 22px; border-radius: 5px;
+        border: 1px solid var(--line); background: var(--panel); color: var(--ink-3); cursor: pointer;
+      }
+      .copy:hover { color: var(--ink); border-color: var(--ink-3); }
+      .copy svg { width: 12px; height: 12px; }
+      .copy.done { color: var(--teal); border-color: var(--teal-line); background: var(--teal-bg); }
+
+      /* ---- forms ---- */
+      .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px 14px; }
+      label { display: block; }
+      label .lab { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--ink-2); margin-bottom: 4px; }
+      input, select {
+        width: 100%; font: inherit; font-size: 13.5px;
+        padding: 8px 9px; border: 1px solid var(--line); border-radius: 7px;
+        background: var(--panel); color: var(--ink);
+      }
+      input:focus-visible, select:focus-visible, button:focus-visible, .copy:focus-visible, .iconbtn:focus-visible {
+        outline: 2px solid var(--focus); outline-offset: 1px;
+      }
+      .full { grid-column: 1 / -1; }
+      .form-foot { display: flex; align-items: center; gap: 14px; margin-top: 14px; }
+      .netnote { font-size: 12px; color: var(--amber); margin-right: auto; min-height: 1.2em; }
+
+      /* enforcement marker: filled = on-chain, hollow = policy */
+      .mk { flex: 0 0 auto; width: 9px; height: 9px; border-radius: 999px; }
+      .mk.chain { background: var(--teal); }
+      .mk.soft { background: transparent; border: 1.5px solid var(--amber); }
+
+      .btn {
+        font: inherit; font-size: 13.5px; font-weight: 500;
+        padding: 8px 15px; border-radius: 7px; cursor: pointer;
+        border: 1px solid var(--ink); background: var(--ink); color: #fff;
+      }
+      .btn:hover { background: #000; }
+      .btn.secondary { background: var(--panel); color: var(--ink); border-color: var(--line); }
+      .btn.secondary:hover { border-color: var(--ink-3); background: var(--inset); }
+      .btn.danger { background: var(--panel); color: var(--red); border-color: var(--red-line); font-weight: 600; }
+      .btn.danger:hover { background: var(--red-bg); }
+      .btn.sm { padding: 5px 11px; font-size: 12.5px; }
+
+      /* ---- sessions ---- */
+      .legend { display: flex; gap: 16px; font-size: 11.5px; color: var(--ink-2); flex-wrap: wrap; }
+      .legend span { display: inline-flex; align-items: center; gap: 6px; }
+      .sessions { display: grid; gap: 12px; }
+      .sx { border: 1px solid var(--line); border-radius: 9px; padding: 13px 14px; }
+      .sx[data-status="revoked"], .sx[data-status="suspended"], .sx[data-status="expired"] { background: var(--inset); }
+      .sx-h { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; margin-bottom: 11px; }
+      .sx-agent { font-weight: 600; font-size: 14.5px; }
+      .st {
+        font-family: var(--mono); font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase;
+        padding: 2px 7px; border-radius: 999px; border: 1px solid var(--line);
+      }
+      .st-active, .st-approved { background: var(--teal-bg); color: var(--teal); border-color: var(--teal-line); }
+      .st-suspended, .st-expired, .st-rejected_policy { background: var(--amber-bg); color: var(--amber); border-color: var(--amber-line); }
+      .st-revoked, .st-rejected_onchain { background: var(--red-bg); color: var(--red); border-color: var(--red-line); }
+      .flag {
+        font-family: var(--mono); font-size: 10.5px; color: var(--amber);
+        border: 1px dashed var(--amber-line); border-radius: 4px; padding: 1px 6px;
+      }
+      .softbadge { font-family: var(--mono); font-size: 10px; color: var(--amber); border: 1px dashed var(--amber-line); border-radius: 4px; padding: 1px 5px; }
+
+      /* the meter: the track's right wall is the on-chain cap */
+      .meter {
+        position: relative; height: 10px; border-radius: 3px;
+        background: var(--inset); border: 1px solid var(--line-2);
+        margin-bottom: 9px;
+      }
+      .meter .fill {
+        position: absolute; left: 0; top: 0; bottom: 0; border-radius: 2px 0 0 2px;
+        background: linear-gradient(var(--ink), #2b3240);
+        transition: width .45s cubic-bezier(.2,.7,.2,1);
+      }
+      .sx[data-status="revoked"] .fill, .sx[data-status="suspended"] .fill, .sx[data-status="expired"] .fill {
+        background: var(--ink-3);
+      }
+      .meter .wall { position: absolute; right: -1px; top: -3px; bottom: -3px; width: 2px; background: var(--teal); border-radius: 2px; }
+      .meter .pertx { position: absolute; top: -3px; bottom: -3px; width: 0; border-left: 2px dashed var(--amber); }
+      .sx-read { display: flex; flex-wrap: wrap; gap: 4px 18px; font-size: 12px; color: var(--ink-2); }
+      .sx-read b { color: var(--ink); }
+      .sx-read .cap { color: var(--teal); }
+      .sx-f { display: flex; align-items: center; gap: 10px; margin-top: 11px; padding-top: 11px; border-top: 1px solid var(--line-2); }
+      .ref { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-2); margin-right: auto; }
+
+      /* ---- audit ledger ---- */
+      .filters { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; margin-bottom: 12px; }
+      .filters label { min-width: 130px; }
+      .tablewrap { overflow-x: auto; border: 1px solid var(--line-2); border-radius: 8px; }
+      table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+      thead th {
+        font-family: var(--mono); font-size: 10px; letter-spacing: .08em; text-transform: uppercase;
+        color: var(--ink-3); text-align: left; font-weight: 600;
+        padding: 8px 11px; background: var(--inset); border-bottom: 1px solid var(--line-2);
+        white-space: nowrap; position: sticky; top: 0;
+      }
+      tbody td { padding: 8px 11px; border-bottom: 1px solid var(--line-2); white-space: nowrap; }
+      tbody tr:last-child td { border-bottom: 0; }
+      td.num { text-align: right; }
+      .tag {
+        font-family: var(--mono); font-size: 10.5px; letter-spacing: .04em;
+        padding: 2px 7px; border-radius: 4px; border: 1px solid var(--line);
+      }
+      .tag-approved { background: var(--teal-bg); color: var(--teal); border-color: var(--teal-line); }
+      .tag-rejected_policy { background: var(--amber-bg); color: var(--amber); border-color: var(--amber-line); }
+      .tag-rejected_onchain { background: var(--red-bg); color: var(--red); border-color: var(--red-line); }
+      .empty { padding: 22px 14px; text-align: center; color: var(--ink-3); font-size: 13px; }
+      .empty b { color: var(--ink-2); font-weight: 600; }
+
+      .msg { font-size: 12.5px; margin-top: 10px; min-height: 1.1em; }
+      .msg.err { color: var(--red); }
+      .msg.ok { color: var(--teal); }
+      .msg.work { color: var(--ink-2); }
+
+      @media (max-width: 620px) {
+        .sx-f { flex-wrap: wrap; }
+        .ref { width: 100%; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .fill, .copy { transition: none; }
+      }
     </style>
   </head>
-  <body>
+  <body data-mode="testnet">
+    <div class="arm"></div>
+
     <header>
-      <h1>Agent Payment Safety Layer — Ops Dashboard</h1>
-      <div class="warn">
-        <strong>Internal ops tool.</strong> API routes require the API token (you will be
-        prompted once). On mainnet this controls real funds — serve behind TLS and keep the
-        token secret.
+      <div class="brand">
+        <span class="wordmark">Saya</span>
+        <span class="tagline"><b>Payment safety console</b> — scoped, on-chain-enforced spending for agents</span>
+      </div>
+      <div class="status" id="status">
+        <span class="mode" id="mode">testnet</span>
+        <button class="iconbtn" id="tokenBtn" onclick="editToken()" title="Set or clear the API token">
+          <span class="dot"></span> token
+        </button>
+        <button class="iconbtn" id="refreshBtn" onclick="refreshAll()" title="Refresh now">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v4h4"/></svg>
+          <span id="freshLabel">live</span>
+        </button>
       </div>
     </header>
+
     <main>
-      <section>
-        <h2>Accounts <button class="secondary" onclick="loadAccounts()" style="float:right">Refresh</button></h2>
-        <div id="accounts" style="font-size:.85rem">loading…</div>
+      <section class="panel">
+        <div class="head">
+          <span class="eyebrow">Accounts</span>
+          <button class="btn secondary sm" onclick="loadAccounts()">Refresh</button>
+        </div>
+        <div id="accounts" class="acct"><div class="empty">Loading accounts…</div></div>
       </section>
 
-      <section>
-        <h2>Create session key</h2>
-        <div class="row">
-          <div><label>Agent ID</label><input id="agentId" value="agent-1" /></div>
-          <div><label>Network</label><select id="network"></select></div>
-          <div><label>Max / tx (USDC) — SOFT</label><input id="perTx" value="0.05" /></div>
-          <div><label>Max total (USDC) — on-chain</label><input id="total" value="1.00" /></div>
-          <div><label>Expires at</label><input id="expiresAt" type="datetime-local" /></div>
+      <section class="panel">
+        <div class="head"><span class="eyebrow">Issue session key</span></div>
+        <div class="grid">
+          <label><span class="lab">Agent</span><input id="agentId" value="agent-1" /></label>
+          <label><span class="lab">Network</span><select id="network"></select></label>
+          <label><span class="lab"><span class="mk chain"></span> Total budget · on-chain</span><input id="total" value="1.00" inputmode="decimal" /></label>
+          <label><span class="lab"><span class="mk soft"></span> Max per payment · policy</span><input id="perTx" value="0.05" inputmode="decimal" /></label>
+          <label><span class="lab"><span class="mk chain"></span> Expires</span><input id="expiresAt" type="datetime-local" /></label>
+          <label class="full"><span class="lab"><span class="mk soft"></span> Allowed recipients · policy — comma-separated, empty means any recipient (higher risk)</span><input id="recips" placeholder="0x…, 0x…" /></label>
         </div>
-        <div id="netNote" style="font-size:.78rem;color:var(--risk);margin-top:.25rem"></div>
-        <div class="row" style="margin-top:.5rem">
-          <div style="flex:3"><label>Allowed recipients — SOFT (comma-separated; empty ⇒ higher_risk)</label><input id="recips" placeholder="0x… , 0x…" /></div>
-          <div style="flex:0 0 auto"><button onclick="createSession()">Issue on-chain</button></div>
+        <div class="form-foot">
+          <span class="netnote" id="netNote"></span>
+          <button class="btn" onclick="createSession()">Issue key</button>
         </div>
         <div class="msg" id="createMsg"></div>
       </section>
 
-      <section>
-        <h2>Sessions <button class="secondary" onclick="loadSessions()" style="float:right">Refresh</button></h2>
-        <div class="tablewrap">
-          <table>
-            <thead><tr><th>ID</th><th>Agent</th><th>Network</th><th>Status</th><th>Per-tx</th><th>Total</th><th>Spent</th><th>Remaining</th><th>Flags</th><th>Ref</th><th></th></tr></thead>
-            <tbody id="sessions"></tbody>
-          </table>
+      <section class="panel">
+        <div class="head">
+          <span class="eyebrow">Sessions</span>
+          <span class="legend">
+            <span><span class="mk chain"></span> on-chain — the chain enforces it</span>
+            <span><span class="mk soft"></span> policy — this backend enforces it</span>
+          </span>
+          <button class="btn secondary sm" onclick="loadSessions()">Refresh</button>
         </div>
+        <div id="sessions" class="sessions"></div>
         <div class="msg" id="sessMsg"></div>
       </section>
 
-      <section>
-        <h2>Audit log</h2>
-        <div class="row">
-          <div><label>Agent ID</label><input id="fAgent" /></div>
-          <div><label>Decision</label><select id="fDecision"><option value="">any</option><option>approved</option><option>rejected_policy</option><option>rejected_onchain</option></select></div>
-          <div><label>On-chain status</label><select id="fStatus"><option value="">any</option><option>pending</option><option>confirmed</option><option>failed</option></select></div>
-          <div style="flex:0 0 auto"><button class="secondary" onclick="loadAudit()">Filter</button></div>
+      <section class="panel">
+        <div class="head"><span class="eyebrow">Audit log</span></div>
+        <div class="filters">
+          <label><span class="lab">Agent</span><input id="fAgent" placeholder="any" /></label>
+          <label><span class="lab">Decision</span>
+            <select id="fDecision"><option value="">any</option><option>approved</option><option>rejected_policy</option><option>rejected_onchain</option></select>
+          </label>
+          <label><span class="lab">On-chain status</span>
+            <select id="fStatus"><option value="">any</option><option>pending</option><option>confirmed</option><option>failed</option></select>
+          </label>
+          <button class="btn secondary sm" onclick="loadAudit()">Filter</button>
         </div>
-        <div class="tablewrap" style="margin-top:.5rem">
+        <div class="tablewrap">
           <table>
-            <thead><tr><th>Time</th><th>Agent</th><th>Session</th><th>Decision</th><th>Reason</th><th>Amount</th><th>Recipient</th><th>Flags</th><th>Tx</th><th>On-chain</th></tr></thead>
+            <thead><tr>
+              <th>Time</th><th>Agent</th><th>Session</th><th>Decision</th><th>Reason</th>
+              <th class="num">Amount</th><th>Recipient</th><th>Flags</th><th>Tx</th><th>On-chain</th>
+            </tr></thead>
             <tbody id="audit"></tbody>
           </table>
         </div>
@@ -99,29 +357,57 @@
 
     <script>
       const $ = (id) => document.getElementById(id);
-      // HTML-escape any value before putting it in innerHTML. Fields like agentId
-      // and recipient are caller-controlled, so unescaped interpolation would be
-      // stored XSS when an operator views the dashboard.
       const esc = (v) =>
         String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
-      const short = (s) => (s ? esc(String(s).slice(0, 8)) + '…' : '—');
-      const pill = (cls, txt) => `<span class="pill ${esc(cls)}">${esc(txt)}</span>`;
+      const short = (s) => (s ? esc(String(s).slice(0, 10)) + '…' : '—');
+      const CLIP = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M6 15H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v1"/></svg>';
 
-      // Auth: send the stored bearer token; prompt for it only on a 401 (so a
-      // no-auth local backend never prompts).
+      // amounts: session fields are decimal USDC strings; audit requestedAmount is base units.
+      const numUSDC = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
+      const fmtBaseUSDC = (v) => (v == null || v === '' ? '—' : (Number(v) / 1e6).toLocaleString(undefined, { maximumFractionDigits: 6 }));
+      const isTestnet = (n) => /sepolia|devnet/.test(n || '');
+
+      function relTime(sec) {
+        const d = Math.floor(Date.now() / 1000) - sec;
+        if (d < 45) return 'just now';
+        if (d < 3600) return Math.round(d / 60) + 'm ago';
+        if (d < 86400) return Math.round(d / 3600) + 'h ago';
+        return new Date(sec * 1000).toLocaleDateString();
+      }
+
+      async function copy(btn, text) {
+        try {
+          await navigator.clipboard.writeText(text);
+          const prev = btn.innerHTML;
+          btn.classList.add('done');
+          btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
+          setTimeout(() => { btn.classList.remove('done'); btn.innerHTML = prev; }, 1100);
+        } catch { /* clipboard blocked */ }
+      }
+      const copyBtn = (text) => `<button class="copy" title="Copy" aria-label="Copy" onclick="copy(this, '${esc(text)}')">${CLIP}</button>`;
+
+      // ---- auth: bearer token, prompt on 401, editable from the header ----
       let TOKEN = localStorage.getItem('safety_api_token') || '';
+      function syncTokenBtn() {
+        const b = $('tokenBtn');
+        b.classList.toggle('set', !!TOKEN);
+        b.lastChild.textContent = TOKEN ? ' token set' : ' token';
+      }
+      function editToken() {
+        const v = prompt('API token (leave blank to clear):', TOKEN);
+        if (v === null) return;
+        TOKEN = v.trim();
+        if (TOKEN) localStorage.setItem('safety_api_token', TOKEN);
+        else localStorage.removeItem('safety_api_token');
+        syncTokenBtn();
+        refreshAll();
+      }
       async function authFetch(url, opts = {}) {
-        const withAuth = (t) => ({
-          ...opts,
-          headers: { ...(opts.headers || {}), ...(t ? { authorization: 'Bearer ' + t } : {}) },
-        });
+        const withAuth = (t) => ({ ...opts, headers: { ...(opts.headers || {}), ...(t ? { authorization: 'Bearer ' + t } : {}) } });
         let res = await fetch(url, withAuth(TOKEN));
         if (res.status === 401) {
-          TOKEN = (prompt('API token required (see API_TOKEN in .env or the setup output):') || '').trim();
-          if (TOKEN) {
-            localStorage.setItem('safety_api_token', TOKEN);
-            res = await fetch(url, withAuth(TOKEN));
-          }
+          TOKEN = (prompt('This backend needs the API token (see API_TOKEN in .env or the setup output):') || '').trim();
+          if (TOKEN) { localStorage.setItem('safety_api_token', TOKEN); syncTokenBtn(); res = await fetch(url, withAuth(TOKEN)); }
         }
         return res;
       }
@@ -132,8 +418,9 @@
         $('expiresAt').value = d.toISOString().slice(0, 16);
       }
 
+      // ---- create / revoke ----
       async function createSession() {
-        const msg = $('createMsg'); msg.textContent = 'issuing on-chain…'; msg.className = 'msg';
+        const msg = $('createMsg'); msg.textContent = 'Issuing on-chain…'; msg.className = 'msg work';
         const recips = $('recips').value.split(',').map((s) => s.trim()).filter(Boolean);
         const expiresAt = Math.floor(new Date($('expiresAt').value).getTime() / 1000);
         try {
@@ -143,86 +430,152 @@
           });
           const j = await res.json();
           if (!res.ok) throw new Error(j.message || JSON.stringify(j.issues || j));
-          msg.textContent = 'created ' + j.id + (j.higherRisk ? ' (higher_risk)' : ''); msg.className = 'msg ok';
+          msg.textContent = 'Issued ' + j.id + (j.higherRisk ? ' — higher risk (no recipient allowlist)' : ''); msg.className = 'msg ok';
           loadSessions();
-        } catch (e) { msg.textContent = 'error: ' + e.message; msg.className = 'msg err'; }
+        } catch (e) { msg.textContent = e.message; msg.className = 'msg err'; }
       }
 
       async function revoke(id) {
-        if (!confirm('Revoke ' + id + ' on-chain? This is irreversible.')) return;
-        const msg = $('sessMsg'); msg.textContent = 'revoking on-chain…'; msg.className = 'msg';
+        if (!confirm('Revoke ' + id + ' on-chain? This ends the key immediately and cannot be undone.')) return;
+        const msg = $('sessMsg'); msg.textContent = 'Revoking on-chain…'; msg.className = 'msg work';
         try {
           const res = await authFetch('/api/sessions/' + id + '/revoke', { method: 'POST' });
           const j = await res.json();
           if (!res.ok) throw new Error(j.message || JSON.stringify(j));
-          msg.textContent = 'revoked (tx ' + short(j.revokeTxHash) + ')'; msg.className = 'msg ok';
+          msg.textContent = 'Revoked on-chain (tx ' + short(j.revokeTxHash) + ')'; msg.className = 'msg ok';
           loadSessions();
-        } catch (e) { msg.textContent = 'error: ' + e.message; msg.className = 'msg err'; }
+        } catch (e) { msg.textContent = e.message; msg.className = 'msg err'; }
       }
 
-      async function loadNetworks() {
-        try {
-          const nets = await (await authFetch('/api/networks')).json();
-          $('network').innerHTML = nets.map((n) => `<option value="${n.network}">${n.network}</option>`).join('');
-          $('network').onchange = showNetNote;
-          showNetNote();
-        } catch (e) { /* leave empty */ }
+      // ---- networks + top status ----
+      function renderNetworks(nets) {
+        $('network').innerHTML = nets.map((n) => `<option value="${esc(n.network)}">${esc(n.network)}</option>`).join('');
+        $('network').onchange = showNetNote;
+        showNetNote();
+        const anyMainnet = nets.some((n) => !isTestnet(n.network));
+        document.body.dataset.mode = anyMainnet ? 'mainnet' : 'testnet';
+        $('mode').textContent = anyMainnet ? 'mainnet · real funds' : 'testnet';
+        // Network chips sit before the mode badge; rebuild them on each refresh.
+        $('status').querySelectorAll('.chip').forEach((c) => c.remove());
+        const chips = nets.map((n) => `<span class="chip">${esc(n.network)} <span class="fam">${esc(n.family)}</span></span>`).join('');
+        $('mode').insertAdjacentHTML('beforebegin', chips);
       }
       function showNetNote() {
         const n = $('network').value || '';
         $('netNote').textContent = n.startsWith('solana')
-          ? 'On Solana, expiresAt is SOFT-ONLY (enforced by this backend, not on-chain). Total cap + revocation are on-chain.'
+          ? 'On Solana, expiry is policy-enforced only — the total budget and revocation are on-chain.'
           : '';
       }
+      async function loadNetworks() {
+        try { renderNetworks(await (await authFetch('/api/networks')).json()); } catch { /* leave empty */ }
+      }
 
+      // ---- accounts ----
+      function renderAccounts(a) {
+        if (a.error) throw new Error(a.message || a.error);
+        $('accounts').innerHTML = `
+          <div class="card">
+            <div class="role"><b>Treasury</b> — fund this with USDC</div>
+            <div class="addr"><span class="mono">${esc(a.treasury)}</span>${copyBtn(a.treasury)}</div>
+            <div class="meta">network ${esc(a.network)}</div>
+          </div>
+          <div class="card">
+            <div class="role"><b>Spender</b> — pulls the capped funds</div>
+            <div class="addr"><span class="mono">${esc(a.spender)}</span>${copyBtn(a.spender)}</div>
+            <div class="meta">USDC ${esc(a.usdcAddress)} · <a href="https://faucet.circle.com" target="_blank" rel="noopener">Circle faucet</a></div>
+          </div>`;
+      }
       async function loadAccounts() {
-        try {
-          const a = await (await authFetch('/api/accounts')).json();
-          if (a.error) throw new Error(a.message || a.error);
-          $('accounts').innerHTML = `
-            <div><strong>Treasury</strong> — fund this with test USDC (${esc(a.network)}): <span class="mono">${esc(a.treasury)}</span></div>
-            <div><strong>Spender</strong> — pulls funds: <span class="mono">${esc(a.spender)}</span></div>
-            <div style="margin-top:.35rem;color:#71717a">USDC <span class="mono">${esc(a.usdcAddress)}</span> · <a href="https://faucet.circle.com" target="_blank" rel="noopener">Circle faucet →</a></div>`;
-        } catch (e) {
-          $('accounts').innerHTML = '<span class="err">accounts unavailable (' + esc(e.message) + ') — check CDP creds</span>';
+        try { renderAccounts(await (await authFetch('/api/accounts')).json()); }
+        catch (e) { $('accounts').innerHTML = `<div class="empty">Accounts unavailable — ${esc(e.message)}. <b>Check your CDP credentials.</b></div>`; }
+      }
+
+      // ---- sessions ----
+      function renderSessions(rows) {
+        if (!rows.length) {
+          $('sessions').innerHTML = '<div class="empty"><b>No sessions yet.</b> Issue a key above to scope what an agent can spend.</div>';
+          return;
         }
+        $('sessions').innerHTML = rows.map((s) => {
+          const total = numUSDC(s.maxAmountTotal), spent = numUSDC(s.cumulativeSpent), perTx = numUSDC(s.maxAmountPerTx);
+          const spentPct = total > 0 ? Math.min(100, (spent / total) * 100) : 0;
+          const perTxPct = total > 0 ? Math.min(100, (perTx / total) * 100) : 0;
+          const flags = [
+            s.higherRisk ? '<span class="flag">higher risk</span>' : '',
+            s.flaggedForReview ? '<span class="flag">flagged</span>' : '',
+            s.expiryEnforcedOnChain ? '' : '<span class="softbadge">expiry: policy</span>',
+          ].join(' ');
+          const canRevoke = s.status !== 'revoked';
+          return `<article class="sx" data-status="${esc(s.status)}">
+            <div class="sx-h">
+              <span class="sx-agent">${esc(s.agentId)}</span>
+              <span class="chip">${esc(s.network)}</span>
+              <span class="st st-${esc(s.status)}">${esc(s.status)}</span>
+              ${flags}
+            </div>
+            <div class="meter" title="${esc(spent)} of ${esc(s.maxAmountTotal)} USDC spent">
+              <div class="fill" style="width:${spentPct.toFixed(1)}%"></div>
+              <span class="pertx" style="left:${perTxPct.toFixed(1)}%" title="max per payment"></span>
+              <span class="wall" title="on-chain cap"></span>
+            </div>
+            <div class="sx-read">
+              <span>spent <b class="mono">${esc(s.cumulativeSpent)}</b></span>
+              <span>remaining <b class="mono">${esc(s.remainingBudget)}</b></span>
+              <span class="cap">cap <b class="mono">${esc(s.maxAmountTotal)}</b> USDC · on-chain</span>
+              <span>max/payment <b class="mono">${esc(s.maxAmountPerTx)}</b> · policy</span>
+            </div>
+            <div class="sx-f">
+              <span class="ref">key ${short(s.permissionHash)} ${s.permissionHash ? copyBtn(s.permissionHash) : ''}</span>
+              ${canRevoke ? `<button class="btn danger sm" onclick="revoke('${esc(s.id)}')">Revoke on-chain</button>` : '<span class="softbadge">revoked</span>'}
+            </div>
+          </article>`;
+        }).join('');
       }
-
       async function loadSessions() {
-        try {
-          const rows = await (await authFetch('/api/sessions')).json();
-          $('sessions').innerHTML = rows.map((s) => `<tr>
-            <td class="mono">${short(s.id)}</td><td>${esc(s.agentId)}</td>
-            <td>${esc(s.network)}${s.expiryEnforcedOnChain ? '' : ' <span class="risk" title="expiresAt is soft-only on Solana">expiry:soft</span>'}</td>
-            <td>${pill(s.status, s.status)}</td>
-            <td>${esc(s.maxAmountPerTx)}</td><td>${esc(s.maxAmountTotal)}</td><td>${esc(s.cumulativeSpent)}</td><td>${esc(s.remainingBudget)}</td>
-            <td>${s.higherRisk ? '<span class="risk">higher_risk</span> ' : ''}${s.flaggedForReview ? '<span class="risk">flagged</span>' : ''}</td>
-            <td class="mono">${short(s.permissionHash)}</td>
-            <td>${s.status === 'revoked' ? '' : `<button class="danger" onclick="revoke('${s.id}')">Revoke</button>`}</td>
-          </tr>`).join('') || '<tr><td colspan="11" style="color:#71717a">no sessions yet</td></tr>';
-        } catch (e) { $('sessMsg').textContent = 'error: ' + e.message; $('sessMsg').className = 'msg err'; }
+        try { renderSessions(await (await authFetch('/api/sessions')).json()); }
+        catch (e) { $('sessMsg').textContent = e.message; $('sessMsg').className = 'msg err'; }
       }
 
+      // ---- audit ----
+      function renderAudit(rows) {
+        if (!rows.length) {
+          $('audit').innerHTML = '<tr><td colspan="10"><div class="empty"><b>No audit entries yet.</b> Every payment decision — approved or rejected — lands here.</div></td></tr>';
+          return;
+        }
+        $('audit').innerHTML = rows.map((r) => `<tr>
+          <td title="${esc(new Date(r.timestamp * 1000).toLocaleString())}">${esc(relTime(r.timestamp))}</td>
+          <td>${esc(r.agentId)}</td>
+          <td class="mono">${short(r.sessionId)}</td>
+          <td><span class="tag tag-${esc(r.decision)}">${esc(r.decision)}</span></td>
+          <td>${esc(r.reasonCode || '—')}</td>
+          <td class="num mono">${esc(fmtBaseUSDC(r.requestedAmount))}</td>
+          <td class="mono">${short(r.recipient)}</td>
+          <td>${esc((r.riskFlags || []).join(', ') || '—')}</td>
+          <td class="mono">${short(r.txHash)}</td>
+          <td>${esc(r.onchainStatus || '—')}</td>
+        </tr>`).join('');
+      }
       async function loadAudit() {
         const p = new URLSearchParams();
         if ($('fAgent').value) p.set('agentId', $('fAgent').value);
         if ($('fDecision').value) p.set('decision', $('fDecision').value);
         if ($('fStatus').value) p.set('onchainStatus', $('fStatus').value);
-        try {
-          const rows = await (await authFetch('/api/audit?' + p.toString())).json();
-          $('audit').innerHTML = rows.map((r) => `<tr>
-            <td>${new Date(r.timestamp * 1000).toLocaleString()}</td><td>${esc(r.agentId)}</td>
-            <td class="mono">${short(r.sessionId)}</td>
-            <td>${pill(r.decision, r.decision)}</td><td>${esc(r.reasonCode || '—')}</td>
-            <td>${esc(r.requestedAmount ?? '—')}</td><td class="mono">${short(r.recipient)}</td>
-            <td>${esc((r.riskFlags || []).join(', ') || '—')}</td>
-            <td class="mono">${short(r.txHash)}</td><td>${esc(r.onchainStatus || '—')}</td>
-          </tr>`).join('') || '<tr><td colspan="10" style="color:#71717a">no audit rows</td></tr>';
-        } catch (e) { $('auditMsg').textContent = 'error: ' + e.message; $('auditMsg').className = 'msg err'; }
+        try { renderAudit(await (await authFetch('/api/audit?' + p.toString())).json()); }
+        catch (e) { $('auditMsg').textContent = e.message; $('auditMsg').className = 'msg err'; }
       }
 
-      initExpiry(); loadNetworks(); loadAccounts(); loadSessions(); loadAudit();
-      setInterval(() => { loadSessions(); loadAudit(); }, 8000);
+      let lastRefresh = Date.now();
+      function refreshAll() { loadNetworks(); loadAccounts(); loadSessions(); loadAudit(); lastRefresh = Date.now(); }
+      function tickFresh() {
+        const s = Math.round((Date.now() - lastRefresh) / 1000);
+        $('freshLabel').textContent = s < 2 ? 'now' : s + 's ago';
+      }
+
+      syncTokenBtn();
+      initExpiry();
+      refreshAll();
+      setInterval(() => { loadSessions(); loadAudit(); lastRefresh = Date.now(); }, 8000);
+      setInterval(tickFresh, 1000);
     </script>
   </body>
 </html>
