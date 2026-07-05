@@ -1,0 +1,474 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Saya — a spending cap the chain enforces, for AI agents</title>
+    <meta name="description" content="Saya issues AI agents scoped session keys with a spending cap the blockchain itself enforces. Native to Base and Solana, settled in USDC over x402." />
+    <style>
+      /* ============================================================
+         SAYA — landing
+         Rule of the page: monochrome mono everywhere; COLOR appears
+         only where a chain is named. Base = blue, Solana = purple→green.
+         ============================================================ */
+      :root {
+        --mono: "Consolas", "Cascadia Mono", "SF Mono", ui-monospace, "JetBrains Mono", "Menlo", "Liberation Mono", monospace;
+        --ink: #0b0b0d;
+        --ink-2: #141418;
+        --paper: #ffffff;
+        --paper-2: #f4f4f2;
+        --mut: #6a6a72;      /* grey on white (faint cool bias) */
+        --mut-dk: #8a8a95;   /* grey on black */
+        --line: #e4e4e2;     /* hairline on white */
+        --line-dk: #262630;  /* hairline on black */
+        --base: #0052ff;
+        --base-soft: #7aa2ff;
+        --sol-purple: #9945ff;
+        --sol-green: #14f195;
+        --maxw: 1160px;
+      }
+      * { box-sizing: border-box; }
+      html { scroll-behavior: smooth; }
+      @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+      body {
+        margin: 0;
+        font-family: var(--mono);
+        background: var(--paper);
+        color: var(--ink);
+        font-size: 16px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+        text-rendering: optimizeLegibility;
+      }
+      .tnum { font-variant-numeric: tabular-nums; }
+      a { color: inherit; }
+
+      /* --- section grounds set scoped vars so components adapt --- */
+      .band { --fg: var(--ink); --muted: var(--mut); --hair: var(--line); background: var(--paper); color: var(--fg); }
+      .band--dark { --fg: var(--paper); --muted: var(--mut-dk); --hair: var(--line-dk); background: var(--ink); color: var(--fg); }
+      .wrap { max-width: var(--maxw); margin-inline: auto; padding-inline: clamp(20px, 5vw, 52px); }
+      .sec { padding-block: clamp(68px, 11vw, 140px); }
+
+      .eyebrow {
+        font-size: 11px; letter-spacing: 0.24em; text-transform: uppercase;
+        color: var(--muted); margin: 0 0 20px;
+      }
+      h2.head {
+        font-size: clamp(1.7rem, 4vw, 2.9rem); font-weight: 700; line-height: 1.05;
+        letter-spacing: -0.02em; margin: 0 0 20px; text-wrap: balance; max-width: 20ch;
+      }
+      .lede { max-width: 62ch; color: var(--muted); font-size: 1.02rem; margin: 0; }
+      .lede b { color: var(--fg); font-weight: 700; }
+
+      /* --- nav --- */
+      .nav {
+        position: sticky; top: 0; z-index: 50;
+        background: color-mix(in srgb, var(--ink) 88%, transparent);
+        backdrop-filter: blur(8px);
+        border-bottom: 1px solid var(--line-dk);
+        color: var(--paper);
+      }
+      .nav__in { display: flex; align-items: center; gap: 18px; height: 56px; }
+      .brand { font-weight: 700; letter-spacing: 0.34em; padding-right: 0.34em; margin-right: auto; font-size: 15px; }
+      .nav a { color: var(--mut-dk); text-decoration: none; font-size: 13px; letter-spacing: 0.02em; }
+      .nav a:hover { color: var(--paper); }
+      .nav .navlink { display: none; }
+      @media (min-width: 760px) { .nav .navlink { display: inline; } }
+
+      .btn {
+        display: inline-flex; align-items: center; gap: 8px; font: inherit; font-size: 13px;
+        padding: 9px 15px; border-radius: 2px; text-decoration: none; cursor: pointer;
+        border: 1px solid currentColor; background: transparent; color: inherit;
+        transition: background .15s, color .15s;
+      }
+      .btn svg { width: 13px; height: 13px; }
+      .btn--solid { background: var(--paper); color: var(--ink); border-color: var(--paper); font-weight: 700; }
+      .btn--solid:hover { background: transparent; color: var(--paper); }
+      .btn--ghost:hover { background: color-mix(in srgb, currentColor 12%, transparent); }
+      .nav .btn { padding: 7px 13px; }
+
+      /* --- hero --- */
+      .hero { padding-block: clamp(56px, 9vw, 104px) clamp(64px, 10vw, 120px); }
+      .hero__grid { display: grid; gap: clamp(40px, 6vw, 72px); grid-template-columns: 1fr; align-items: center; }
+      @media (min-width: 940px) { .hero__grid { grid-template-columns: 1.05fr 0.95fr; } }
+      .hero h1 {
+        font-size: clamp(2.6rem, 7vw, 5rem); font-weight: 700; line-height: 0.98;
+        letter-spacing: -0.035em; margin: 18px 0 0; text-wrap: balance;
+      }
+      .hero h1 .dim { color: var(--mut-dk); }
+      .hero__sub { max-width: 54ch; color: var(--mut-dk); margin: 26px 0 0; font-size: 1.02rem; }
+      .hero__sub b { color: var(--paper); font-weight: 700; }
+      .hero__cta { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 32px; }
+      .hero__meta { margin-top: 30px; font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: var(--mut-dk); display: flex; flex-wrap: wrap; gap: 8px 18px; }
+      .hero__meta .dot { color: var(--line-dk); }
+
+      /* --- the signature: dual-chain spend permits --- */
+      .permits { display: grid; gap: 16px; }
+      .permit {
+        --accent: var(--base); --accent2: var(--base);
+        border: 1px solid var(--line-dk); border-radius: 4px; padding: 18px 18px 16px;
+        background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 7%, var(--ink-2)), var(--ink-2));
+        position: relative; overflow: hidden;
+      }
+      .permit::before {
+        content: ""; position: absolute; inset: 0 0 auto 0; height: 2px;
+        background: linear-gradient(90deg, var(--accent), var(--accent2));
+      }
+      .permit--sol { --accent: var(--sol-purple); --accent2: var(--sol-green); }
+      .permit__top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+      .permit__chain { font-weight: 700; letter-spacing: 0.24em; font-size: 13px; color: var(--accent); }
+      .permit--sol .permit__chain {
+        background: linear-gradient(90deg, var(--sol-purple), var(--sol-green));
+        -webkit-background-clip: text; background-clip: text; color: transparent;
+      }
+      .permit__tag { font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--mut-dk); border: 1px solid var(--line-dk); padding: 2px 7px; border-radius: 999px; }
+      .permit__key { font-size: 12.5px; color: var(--mut-dk); margin-bottom: 12px; }
+      .permit__key b { color: var(--paper); }
+      .meter { position: relative; height: 12px; background: #000; border: 1px solid var(--line-dk); border-radius: 2px; overflow: hidden; }
+      .meter__fill {
+        position: absolute; inset: 0 auto 0 0; width: var(--pct);
+        background: linear-gradient(90deg, var(--accent), var(--accent2));
+        box-shadow: 0 0 16px color-mix(in srgb, var(--accent2) 60%, transparent);
+        animation: grow 1.15s cubic-bezier(.2,.7,.2,1) both;
+      }
+      .meter__wall { position: absolute; top: -3px; bottom: -3px; right: -1px; width: 2px; background: var(--accent2); box-shadow: 0 0 10px var(--accent2); }
+      @keyframes grow { from { width: 0; } }
+      .permit__read { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12px; color: var(--mut-dk); margin-top: 10px; }
+      .permit__read b { color: var(--paper); }
+      .permit__cap b { color: var(--accent2); }
+      .permit__log { margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--line-dk); font-size: 12px; color: var(--mut-dk); line-height: 1.55; overflow-wrap: anywhere; }
+      .revert { display: inline-block; margin-right: 8px; color: var(--paper); background: color-mix(in srgb, var(--accent) 22%, transparent); border: 1px solid var(--accent); font-size: 10px; letter-spacing: .12em; padding: 1px 6px; border-radius: 2px; font-weight: 700; }
+      .permit__cite { text-align: center; font-size: 12px; color: var(--mut-dk); margin-top: 4px; }
+
+      /* --- generic content grid / cards --- */
+      .split { display: grid; gap: clamp(28px, 5vw, 64px); grid-template-columns: 1fr; }
+      @media (min-width: 860px) { .split { grid-template-columns: 0.85fr 1.15fr; } }
+      .big-claim { font-size: clamp(1.5rem, 3.4vw, 2.4rem); font-weight: 700; line-height: 1.12; letter-spacing: -0.02em; margin: 0; text-wrap: balance; }
+      .prose { color: var(--muted); max-width: 60ch; }
+      .prose p { margin: 0 0 16px; }
+      .prose b { color: var(--fg); font-weight: 700; }
+
+      /* --- steps (a real sequence: issue → pay → enforce) --- */
+      .steps { display: grid; gap: 1px; background: var(--hair); border: 1px solid var(--hair); border-radius: 4px; overflow: hidden; margin-top: 8px; }
+      @media (min-width: 820px) { .steps { grid-template-columns: repeat(3, 1fr); } }
+      .step { background: var(--paper); padding: 24px 22px; }
+      .step__k { font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--mut); display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+      .step__k .n { color: var(--ink); border: 1px solid var(--line); width: 22px; height: 22px; display: grid; place-items: center; border-radius: 2px; font-size: 11px; }
+      .step__t { font-size: 1.05rem; font-weight: 700; margin: 0 0 8px; letter-spacing: -0.01em; }
+      .step p { margin: 0; color: var(--mut); font-size: 0.92rem; }
+      .step .kw { color: var(--ink); }
+
+      /* --- trust boundary table --- */
+      .tb-wrap { overflow-x: auto; border: 1px solid var(--hair); border-radius: 4px; margin-top: 10px; }
+      table.tb { width: 100%; border-collapse: collapse; font-size: 0.92rem; min-width: 520px; }
+      table.tb th, table.tb td { text-align: left; padding: 15px 18px; border-bottom: 1px solid var(--hair); white-space: nowrap; }
+      table.tb thead th { font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--mut); font-weight: 700; }
+      table.tb tbody tr:last-child td { border-bottom: 0; }
+      table.tb td.lim { color: var(--ink); }
+      table.tb th.c-base, table.tb td.c-base { color: var(--base); border-left: 1px solid var(--hair); }
+      table.tb th.c-sol { border-left: 1px solid var(--hair); background: linear-gradient(90deg, var(--sol-purple), var(--sol-green)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+      table.tb td.c-sol { border-left: 1px solid var(--hair); color: var(--sol-purple); }
+      .enforce { font-weight: 700; }
+      .policy { color: var(--mut); }
+      .tb-legend { display: flex; flex-wrap: wrap; gap: 8px 22px; margin-top: 16px; font-size: 12.5px; color: var(--mut); }
+      .tb-legend b { color: var(--ink); }
+
+      /* --- two chains --- */
+      .chains { display: grid; gap: 16px; grid-template-columns: 1fr; margin-top: 8px; }
+      @media (min-width: 820px) { .chains { grid-template-columns: 1fr 1fr; } }
+      .chain { --accent: var(--base); --accent2: var(--base); border: 1px solid var(--hair); border-radius: 4px; padding: 26px 24px; position: relative; }
+      .chain::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 3px; background: linear-gradient(90deg, var(--accent), var(--accent2)); border-radius: 4px 4px 0 0; }
+      .chain--sol { --accent: var(--sol-purple); --accent2: var(--sol-green); }
+      .chain__name { font-size: 1.25rem; font-weight: 700; letter-spacing: 0.02em; color: var(--accent); margin: 8px 0 4px; }
+      .chain--sol .chain__name { background: linear-gradient(90deg, var(--sol-purple), var(--sol-green)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+      .chain__role { font-size: 12px; letter-spacing: .04em; color: var(--mut); text-transform: uppercase; margin-bottom: 16px; }
+      .chain p { margin: 0 0 14px; color: var(--mut); font-size: 0.94rem; }
+      .chain ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 9px; }
+      .chain li { font-size: 0.9rem; display: flex; gap: 10px; align-items: baseline; }
+      .chain li .tick { color: var(--accent2); flex: 0 0 auto; }
+      .chain li b { color: var(--ink); font-weight: 700; }
+
+      /* --- features --- */
+      .feat { display: grid; gap: 1px; background: var(--hair); border: 1px solid var(--hair); border-radius: 4px; overflow: hidden; margin-top: 8px; }
+      @media (min-width: 640px) { .feat { grid-template-columns: 1fr 1fr; } }
+      @media (min-width: 940px) { .feat { grid-template-columns: repeat(3, 1fr); } }
+      .f { background: var(--paper); padding: 22px; }
+      .f__t { font-weight: 700; margin: 0 0 6px; font-size: 0.98rem; }
+      .f p { margin: 0; color: var(--mut); font-size: 0.86rem; }
+
+      /* --- terminal / quickstart --- */
+      .term { border: 1px solid var(--line-dk); border-radius: 6px; overflow: hidden; background: #060608; margin-top: 8px; }
+      .term__bar { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--line-dk); }
+      .term__bar .lamp { width: 9px; height: 9px; border-radius: 999px; background: var(--line-dk); }
+      .term__bar .name { margin-left: 8px; font-size: 11px; letter-spacing: .1em; color: var(--mut-dk); text-transform: uppercase; }
+      pre.code { margin: 0; padding: 20px clamp(16px, 3vw, 26px); overflow-x: auto; font-size: 13px; line-height: 1.75; color: #d7d7de; }
+      pre.code .c { color: #6a6a78; }
+      pre.code .p { color: var(--base-soft); }
+      pre.code .g { color: var(--sol-green); }
+      pre.code .k { color: #fff; font-weight: 700; }
+
+      /* --- closing cta --- */
+      .cta { text-align: center; }
+      .cta h2 { font-size: clamp(2rem, 5.5vw, 3.6rem); font-weight: 700; letter-spacing: -0.03em; line-height: 1.02; margin: 0 auto; max-width: 18ch; text-wrap: balance; }
+      .cta p { color: var(--mut-dk); margin: 20px auto 30px; max-width: 46ch; }
+      .cta .btnrow { display: flex; justify-content: center; gap: 12px; flex-wrap: wrap; }
+
+      /* --- footer --- */
+      footer { border-top: 1px solid var(--line-dk); }
+      .foot { display: flex; flex-wrap: wrap; gap: 14px 24px; align-items: center; padding-block: 30px; color: var(--mut-dk); font-size: 12.5px; }
+      .foot .brand { color: var(--paper); font-size: 13px; }
+      .foot a { color: var(--mut-dk); text-decoration: none; }
+      .foot a:hover { color: var(--paper); }
+      .foot .sep { margin-left: auto; }
+
+      /* --- reveal (safe: visible without JS or with reduced motion) --- */
+      .js .reveal { opacity: 0; transform: translateY(14px); }
+      .js .reveal.in { opacity: 1; transform: none; transition: opacity .6s ease, transform .6s cubic-bezier(.2,.7,.2,1); }
+      :focus-visible { outline: 2px solid var(--base); outline-offset: 3px; }
+      @media (prefers-reduced-motion: reduce) {
+        .js .reveal { opacity: 1; transform: none; }
+        .meter__fill { animation: none; }
+      }
+    </style>
+  </head>
+  <body>
+    <script>document.documentElement.classList.add("js");</script>
+
+    <!-- NAV -->
+    <nav class="nav">
+      <div class="wrap nav__in">
+        <span class="brand">SAYA</span>
+        <a class="navlink" href="#how">how it works</a>
+        <a class="navlink" href="#trust">trust boundary</a>
+        <a class="navlink" href="#chains">chains</a>
+        <a class="btn btn--ghost" href="https://github.com/hellohello143/saya-safety-layer" target="_blank" rel="noopener">
+          GitHub
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>
+        </a>
+      </div>
+    </nav>
+
+    <!-- HERO -->
+    <header class="band band--dark">
+      <div class="wrap hero">
+        <div class="hero__grid">
+          <div>
+            <p class="eyebrow">Payment safety layer · Base + Solana</p>
+            <h1>Your agent can spend.<br /><span class="dim">It can't overspend.</span></h1>
+            <p class="hero__sub">Saya issues each AI agent a scoped session key with a spending cap the <b>blockchain itself enforces</b> — not a server that can be bypassed. Your agent pays for APIs, compute, data, or other agents over x402 in USDC. A bug, a jailbreak, or a runaway loop can never spend past the cap you set.</p>
+            <div class="hero__cta">
+              <a class="btn btn--solid" href="https://github.com/hellohello143/saya-safety-layer" target="_blank" rel="noopener">
+                Read the code
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>
+              </a>
+              <a class="btn btn--ghost" href="#how">See how it works</a>
+            </div>
+            <div class="hero__meta">
+              <span>On-chain enforced</span><span class="dot">/</span>
+              <span>USDC over x402</span><span class="dot">/</span>
+              <span>Open source</span>
+            </div>
+          </div>
+
+          <div>
+            <div class="permits reveal">
+              <article class="permit permit--base">
+                <div class="permit__top"><span class="permit__chain">BASE</span><span class="permit__tag">on-chain cap</span></div>
+                <div class="permit__key">session key · <b>research-agent</b></div>
+                <div class="meter"><div class="meter__fill" style="--pct:34%"></div><div class="meter__wall"></div></div>
+                <div class="permit__read tnum"><span>spent <b>0.34</b></span><span>left <b>0.66</b></span><span class="permit__cap">cap <b>1.00</b> USDC</span></div>
+                <div class="permit__log tnum"><span class="revert">REVERT</span> agent tried 4.20 — over cap, blocked on-chain</div>
+              </article>
+              <article class="permit permit--sol">
+                <div class="permit__top"><span class="permit__chain">SOLANA</span><span class="permit__tag">on-chain cap</span></div>
+                <div class="permit__key">session key · <b>scraper-07</b></div>
+                <div class="meter"><div class="meter__fill" style="--pct:71%"></div><div class="meter__wall"></div></div>
+                <div class="permit__read tnum"><span>spent <b>1.42</b></span><span>left <b>0.58</b></span><span class="permit__cap">cap <b>2.00</b> USDC</span></div>
+                <div class="permit__log tnum"><span class="revert">REJECT</span> delegate tried 0.90 — past remaining, blocked</div>
+              </article>
+            </div>
+            <p class="permit__cite">One guarantee — issued natively on both chains.</p>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- THE PROBLEM -->
+    <section class="band sec">
+      <div class="wrap split">
+        <div><p class="eyebrow reveal">The problem</p></div>
+        <div>
+          <p class="big-claim reveal">An API key with a card behind it is one infinite loop from an unbounded bill.</p>
+          <div class="prose reveal" style="margin-top:22px">
+            <p>The usual way to let an agent pay is to hand it a funded wallet, or a key with a card attached. That works right up until a prompt injection, a bad tool call, or a loop that doesn't stop — and then the only thing between the agent and your balance is hope.</p>
+            <p><b>Saya puts a hard ceiling in between.</b> The ceiling lives on-chain, so it holds even when the agent, the prompt, or this backend goes wrong. The agent transacts freely inside the sandbox you define, and cannot step outside it.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- HOW IT WORKS -->
+    <section class="band sec" id="how" style="background:var(--paper-2)">
+      <div class="wrap">
+        <p class="eyebrow reveal">How it works</p>
+        <h2 class="head reveal">Issue a key. Let the agent pay. The chain does the enforcing.</h2>
+        <div class="steps reveal">
+          <div class="step">
+            <div class="step__k"><span class="n">1</span> Issue</div>
+            <h3 class="step__t">Mint a scoped key</h3>
+            <p>Set a <span class="kw">total budget</span>, an <span class="kw">expiry</span>, and per-payment limits. Saya mints it on-chain — a Spend Permission on Base, an SPL token delegation on Solana.</p>
+          </div>
+          <div class="step">
+            <div class="step__k"><span class="n">2</span> Pay</div>
+            <h3 class="step__t">Agent hits a paywall</h3>
+            <p>Your agent requests a resource, gets an <span class="kw">x402</span> challenge, and asks Saya to settle it. Saya checks the policy, pulls only the capped amount, and pays the merchant in USDC.</p>
+          </div>
+          <div class="step">
+            <div class="step__k"><span class="n">3</span> Enforce</div>
+            <h3 class="step__t">The chain caps the pull</h3>
+            <p>Go over budget or past expiry and the transfer <span class="kw">reverts on-chain</span> — no server in the loop to bypass. Every attempt, approved or blocked, lands in the audit log.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TRUST BOUNDARY -->
+    <section class="band band--dark sec" id="trust">
+      <div class="wrap">
+        <p class="eyebrow reveal">Trust boundary</p>
+        <h2 class="head reveal">We tell you exactly what the chain enforces — and what we do.</h2>
+        <p class="lede reveal">No limit is ever silently downgraded to something weaker. Here is the honest split, per chain — the same table that ships in the repo.</p>
+        <div class="tb-wrap reveal" style="margin-top:26px">
+          <table class="tb">
+            <thead>
+              <tr><th>Limit</th><th class="c-base">Base</th><th class="c-sol">Solana</th></tr>
+            </thead>
+            <tbody>
+              <tr><td class="lim">Total budget</td><td class="c-base enforce">On-chain</td><td class="c-sol enforce">On-chain</td></tr>
+              <tr><td class="lim">Expiry</td><td class="c-base enforce">On-chain</td><td class="c-sol enforce">Scheduled revoke</td></tr>
+              <tr><td class="lim">Revocation</td><td class="c-base enforce">On-chain</td><td class="c-sol enforce">On-chain</td></tr>
+              <tr><td class="lim">Per-payment cap</td><td class="policy">Policy</td><td class="policy">Policy</td></tr>
+              <tr><td class="lim">Recipient allowlist</td><td class="policy">Policy</td><td class="policy">Policy</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="tb-legend reveal">
+          <span><b>On-chain</b> — the chain reverts any violation, independent of Saya.</span>
+          <span><b>Scheduled revoke</b> — Solana has no native expiry, so Saya revokes the delegation on-chain at expiry.</span>
+          <span><b>Policy</b> — Saya's engine enforces it, and flags it on every payment.</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- CHAINS -->
+    <section class="band sec" id="chains">
+      <div class="wrap">
+        <p class="eyebrow reveal">Two chains, one guarantee</p>
+        <h2 class="head reveal">Native to Base and Solana — not the lowest common denominator.</h2>
+        <div class="chains reveal">
+          <article class="chain chain--base">
+            <div class="chain__name">Base</div>
+            <div class="chain__role">EVM · CDP Spend Permissions</div>
+            <p>Budget and expiry live in the Spend Permission itself. The contract reverts any spend over the cap or past the end — Saya never has to be trusted for those.</p>
+            <ul>
+              <li><span class="tick">+</span><span><b>Gasless</b> user ops via the CDP paymaster</span></li>
+              <li><span class="tick">+</span><span><b>Lifetime cap</b> in a single non-resetting window</span></li>
+              <li><span class="tick">+</span><span><b>Real revocation</b> with an on-chain tx hash</span></li>
+            </ul>
+          </article>
+          <article class="chain chain--sol">
+            <div class="chain__name">Solana</div>
+            <div class="chain__role">SPL Token delegation</div>
+            <p>A single-hop delegation caps the total on-chain and decrements per transfer. Solana has no native time bound, so Saya revokes the delegation on-chain at expiry — actively, not just by refusing to sign.</p>
+            <ul>
+              <li><span class="tick">+</span><span><b>On-chain total cap</b> via delegated amount</span></li>
+              <li><span class="tick">+</span><span><b>Scheduled revoke</b> clears the delegate at expiry</span></li>
+              <li><span class="tick">+</span><span><b>Single-hop</b> — funds never sit with the spender</span></li>
+            </ul>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- FEATURES -->
+    <section class="band sec" style="background:var(--paper-2)">
+      <div class="wrap">
+        <p class="eyebrow reveal">What you get</p>
+        <h2 class="head reveal">A policy and audit layer on top of the on-chain cap.</h2>
+        <div class="feat reveal">
+          <div class="f"><h3 class="f__t">Token auth</h3><p>Every API route needs a bearer token. On mainnet the server refuses to start without one.</p></div>
+          <div class="f"><h3 class="f__t">Full audit log</h3><p>Every decision — approved or blocked — is recorded with a reason code and queryable.</p></div>
+          <div class="f"><h3 class="f__t">Circuit breaker</h3><p>Too many attempts in a window trips the key: auto-suspend, then revoke it on-chain.</p></div>
+          <div class="f"><h3 class="f__t">Ops dashboard</h3><p>Watch budgets burn down, see risk flags, and revoke any key with one click.</p></div>
+          <div class="f"><h3 class="f__t">x402-native</h3><p>Agents pay per request through the x402 challenge, settled with a real on-chain transfer.</p></div>
+          <div class="f"><h3 class="f__t">USDC, done right</h3><p>Six-decimal integer money end to end. No floating-point rounding, ever.</p></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- QUICKSTART -->
+    <section class="band band--dark sec">
+      <div class="wrap split">
+        <div>
+          <p class="eyebrow reveal">Quickstart</p>
+          <h2 class="head reveal">Running in a couple of commands.</h2>
+          <p class="lede reveal">Node, a CDP key, and you have a scoped agent wallet on testnet. Same API on Base and Solana — pass the network you want.</p>
+        </div>
+        <div class="term reveal">
+          <div class="term__bar"><span class="lamp"></span><span class="lamp"></span><span class="lamp"></span><span class="name">saya</span></div>
+<pre class="code tnum"><span class="c"># set up + run</span>
+$ npm run setup     <span class="c"># validates creds, funds a test wallet</span>
+$ npm run dev       <span class="c"># backend + dashboard on :3000</span>
+
+<span class="c"># issue a scoped key</span>
+<span class="k">POST</span> /api/sessions
+{ <span class="p">"agentId"</span>: <span class="g">"research-agent"</span>,
+  <span class="p">"network"</span>: <span class="g">"base-sepolia"</span>,
+  <span class="p">"maxAmountTotal"</span>: <span class="g">"1.00"</span>,
+  <span class="p">"maxAmountPerTx"</span>: <span class="g">"0.05"</span>,
+  <span class="p">"expiresAt"</span>: 1751500000 }
+
+<span class="c"># the agent pays — capped, on-chain</span>
+<span class="k">POST</span> /api/pay  { <span class="p">"sessionId"</span>: <span class="g">"…"</span>, <span class="p">"targetUrl"</span>: <span class="g">"…"</span> }</pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- CTA -->
+    <section class="band band--dark sec">
+      <div class="wrap cta">
+        <h2 class="reveal">Give your agent a wallet, not a blank check.</h2>
+        <p class="reveal">Open source. Runs on Base and Solana, testnet or mainnet, settling in USDC.</p>
+        <div class="btnrow reveal">
+          <a class="btn btn--solid" href="https://github.com/hellohello143/saya-safety-layer" target="_blank" rel="noopener">
+            Get it on GitHub
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>
+          </a>
+          <a class="btn btn--ghost" href="#trust">See the trust boundary</a>
+        </div>
+      </div>
+    </section>
+
+    <!-- FOOTER -->
+    <footer class="band band--dark">
+      <div class="wrap foot">
+        <span class="brand">SAYA</span>
+        <span>Scoped, on-chain-enforced spending for autonomous agents.</span>
+        <a class="sep" href="https://github.com/hellohello143/saya-safety-layer" target="_blank" rel="noopener">github ↗</a>
+      </div>
+    </footer>
+
+    <script>
+      // Scroll reveal — additive only; content is fully visible without JS or with reduced motion.
+      (function () {
+        var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        var els = document.querySelectorAll(".reveal");
+        if (reduce || !("IntersectionObserver" in window)) { els.forEach(function (e) { e.classList.add("in"); }); return; }
+        var io = new IntersectionObserver(function (entries) {
+          entries.forEach(function (en) { if (en.isIntersecting) { en.target.classList.add("in"); io.unobserve(en.target); } });
+        }, { threshold: 0.12, rootMargin: "0px 0px -8% 0px" });
+        els.forEach(function (e) { io.observe(e); });
+      })();
+    </script>
+  </body>
+</html>
