@@ -23,18 +23,24 @@ SOFT-ONLY on Solana.**
 | Parameter | EVM (Base) — CDP Spend Permissions | Solana — SPL Token delegation |
 |---|---|---|
 | **`maxAmountTotal`** | **On-chain** (`allowance`, single-window) | **On-chain** (`ApproveChecked` `delegated_amount`) |
-| **`expiresAt`** | **On-chain** (`end`; `spend()` reverts) | **SOFT-ONLY** — SPL delegation has no time bound; no Token-2022 extension adds one |
+| **`expiresAt`** | **On-chain** (`end`; `spend()` reverts) | **Scheduled on-chain `Revoke`** — SPL delegation has no protocol time bound (no Token-2022 extension adds one), so the backend actively revokes the delegation on-chain at expiry |
 | **`maxAmountPerTx`** | Soft | Soft |
 | **`allowedRecipients`** | Soft | Soft |
 | **Revocation** | Real on-chain (`revoke()`) | Real on-chain (`Revoke`, owner-only) |
 | **Fund flow** | Two-hop (pull to spender → pay merchant) | Single-hop (delegate transfers treasury → merchant) |
 | **Gas** | Gasless (CDP paymaster) | Needs SOL (fee payer) |
 
-**Solana `expiresAt` downgrade** is flagged everywhere per the never-downgrade-silently rule: in code
-([`src/solana/session.ts`](src/solana/session.ts)), on the session API (`expiryEnforcedOnChain: false`),
-in the dashboard ("expiry:soft" badge + create-form warning), and here. On Solana, expiry is enforced
-only by this backend refusing to sign after `expiresAt` (a future upgrade is a scheduled on-chain
-`Revoke` at expiry; the only path to true on-chain expiry is a custom program — out of scope).
+**Solana `expiresAt`** is the one parameter enforced differently than EVM, and it is flagged everywhere
+per the never-downgrade-silently rule: in code ([`src/solana/session.ts`](src/solana/session.ts),
+[`src/solana/expirySweeper.ts`](src/solana/expirySweeper.ts)), on the session API
+(`expiryEnforcedOnChain: false`), in the dashboard ("expiry: policy" badge + create-form note), and here.
+SPL delegation has no protocol-level time bound, so Saya enforces expiry two ways: the policy engine
+refuses to sign after `expiresAt`, **and** an expiry sweeper issues a real **on-chain `Revoke` at expiry**
+that clears the delegation on-chain (sweeping any sessions that expired while the process was down, on
+boot). This is materially stronger than soft-only — an expired session's delegation does not linger
+on-chain — but it is **backend-driven**, not protocol-intrinsic like EVM's `end`: it depends on the
+backend running the revoke, whereas EVM's contract reverts a late `spend()` unconditionally. True
+protocol-level Solana expiry would require a custom program (out of scope).
 
 Solana source of truth: token program `processor.rs`
 ([solana-program/token](https://github.com/solana-program/token)); analysis in
@@ -62,7 +68,7 @@ pays merchants directly via `transferChecked` (single-hop). Implementation:
 | Parameter | Enforcement | On-chain mechanism (or why none) | Confidence |
 |---|---|---|---|
 | **`maxAmountTotal`** | **On-chain** | `ApproveChecked` sets `delegated_amount`; the program **rejects** any delegated transfer beyond it (`InsufficientFunds`), **decrements** it per transfer, and **auto-clears** the delegate at 0. We `Approve` **once** with the full total (a re-`Approve` overwrites), giving a genuine on-chain lifetime cap. | High |
-| **`expiresAt`** | **SOFT — backend only** | **None, architecturally.** A token account has no slot/timestamp field, and an exhaustive scan of Token-2022 extensions found **no** time-bounded delegation. Enforced off-chain by the policy engine refusing to sign after `expiresAt`. This is a **downgrade vs EVM** — flagged in code, API, dashboard, and here. | High |
+| **`expiresAt`** | **Scheduled on-chain `Revoke`** | **No protocol time bound.** A token account has no slot/timestamp field, and an exhaustive scan of Token-2022 extensions found **no** time-bounded delegation. So the policy engine refuses to sign after `expiresAt`, **and** an expiry sweeper ([`src/solana/expirySweeper.ts`](src/solana/expirySweeper.ts)) issues a real **on-chain `Revoke` at expiry** (clearing the delegation; sweeps late ones on boot). Stronger than soft-only, but backend-driven rather than protocol-intrinsic like EVM's `end`. | High |
 | **`maxAmountPerTx`** | **SOFT — backend only** | No per-transfer field. Backend rejects `value > maxAmountPerTx`. | High |
 | **`allowedRecipients`** | **SOFT — backend only** | Delegation doesn't constrain the payee; the delegate can transfer to anyone. Backend enforces the allowlist. Empty ⇒ `higher_risk`. | High |
 | **Revocation** | **On-chain** | `Revoke` clears the delegate (owner-only). Real, immediate on-chain revocation; the circuit breaker uses it. | High |

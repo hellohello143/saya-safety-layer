@@ -1,8 +1,10 @@
 // Solana chain adapter — wraps src/solana/session (SPL Token delegation).
 //
-// IMPORTANT: expiresAt is SOFT-ONLY on Solana (expiryEnforcedOnChain: false). The on-chain
-// cap (delegated_amount) + revocation (Revoke) are real; expiry is enforced only
-// by the policy layer refusing to sign after it. Flagged everywhere.
+// IMPORTANT: SPL delegation has no protocol time bound, so expiresAt is not
+// enforced by the token program (expiryEnforcedOnChain stays false). The on-chain
+// cap (delegated_amount) + revocation (Revoke) ARE native. Expiry is enforced by
+// the policy layer refusing to sign AND a scheduled on-chain Revoke at expiry
+// (src/solana/expirySweeper.ts) — backend-driven, not protocol-intrinsic. Flagged everywhere.
 
 import { address } from '@solana/kit';
 import { SOLANA_NETWORKS, type SolanaNetworkId } from '../config/network.js';

@@ -10,31 +10,32 @@
 import { loadEnv } from '../config/env.js';
 import { AuditRepository } from '../db/repositories/auditRepository.js';
 import { SessionRepository } from '../db/repositories/sessionRepository.js';
+import { BreakerRepository } from '../db/repositories/breakerRepository.js';
 import { adapterFor } from '../chains/index.js';
 
 const auditRepo = new AuditRepository();
 const sessionRepo = new SessionRepository();
+const breakerRepo = new BreakerRepository();
 
 export interface TripResult {
   tripped: boolean;
   attemptsInWindow: number; // prior committed attempts + in-flight ones
 }
 
-// In-process count of attempts that have passed the breaker check but not yet
-// written their audit row. The audit row is the durable count, but it is written
-// only at the END of a payment (after a multi-second on-chain leg), so a burst of
-// concurrent requests would all read the same low committed count and slip past.
-// Counting in-flight attempts closes that window. (Single-process design.)
-const inFlight = new Map<string, number>();
+// Attempts that passed the breaker check but haven't written their terminal audit
+// row yet. The audit row is the durable count, but it's written only at the END of
+// a payment (after a multi-second on-chain leg), so a burst of concurrent requests
+// would all read the same low committed count and slip past. Counting in-flight
+// attempts closes that window. Backed by SQLite (breaker_inflight) so the count is
+// shared across processes and survives restart.
 
-export function beginInFlight(sessionId: string): void {
-  inFlight.set(sessionId, (inFlight.get(sessionId) ?? 0) + 1);
+/** Mark an attempt in-flight. Returns an id to release it with via endInFlight. */
+export function beginInFlight(sessionId: string): string {
+  return breakerRepo.begin(sessionId);
 }
 
-export function endInFlight(sessionId: string): void {
-  const n = (inFlight.get(sessionId) ?? 0) - 1;
-  if (n > 0) inFlight.set(sessionId, n);
-  else inFlight.delete(sessionId);
+export function endInFlight(id: string): void {
+  breakerRepo.end(id);
 }
 
 /**
@@ -46,7 +47,7 @@ export function endInFlight(sessionId: string): void {
 export function checkBreaker(sessionId: string): TripResult {
   const env = loadEnv();
   const since = Math.floor(Date.now() / 1000) - env.CIRCUIT_BREAKER_WINDOW_SECONDS;
-  const active = auditRepo.countAttemptsSince(sessionId, since) + (inFlight.get(sessionId) ?? 0);
+  const active = auditRepo.countAttemptsSince(sessionId, since) + breakerRepo.countSince(sessionId, since);
   return { tripped: active >= env.CIRCUIT_BREAKER_MAX_ATTEMPTS, attemptsInWindow: active };
 }
 

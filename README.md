@@ -9,7 +9,7 @@ Saya issues each autonomous agent a *scoped session key* whose **total budget th
 ![currency](https://img.shields.io/badge/settlement-USDC-2775CA)
 ![node](https://img.shields.io/badge/node-%E2%89%A5%2022.13-339933?logo=node.js&logoColor=white)
 ![typescript](https://img.shields.io/badge/TypeScript-5.7-3178C6?logo=typescript&logoColor=white)
-![tests](https://img.shields.io/badge/tests-48%20passing-brightgreen)
+![tests](https://img.shields.io/badge/tests-55%20passing-brightgreen)
 
 Runs on **Base** (EVM) and **Solana**, testnet or mainnet, settling in **USDC**.
 
@@ -76,12 +76,13 @@ Saya's guiding principle: **enforce every limit at the strongest layer the chain
 | Limit | Base (EVM) | Solana |
 | --- | :---: | :---: |
 | **Total budget** | On-chain | On-chain |
-| **Expiry** | On-chain | Backend |
+| **Expiry** | On-chain | Scheduled revoke |
 | **Revocation** | On-chain | On-chain |
 | **Per-transaction cap** | Backend | Backend |
 | **Recipient allowlist** | Backend | Backend |
 
 **On-chain** — the smart contract enforces it and reverts any violation, independent of this backend.
+**Scheduled revoke** (Solana expiry) — SPL delegation has no protocol-level time bound, so Saya enforces expiry by issuing an **on-chain `Revoke` at expiry**, actively clearing the delegation on-chain (backed up by refusing to sign). Stronger than soft-only, though backend-driven rather than protocol-intrinsic.
 **Backend** — *software-enforced* by Saya's policy engine (the underlying contract exposes no such field) and surfaced on every payment as a risk flag.
 
 The complete, primary-source-cited breakdown lives in [`TRUST_BOUNDARY.md`](TRUST_BOUNDARY.md) — so you always know precisely what is protecting your funds.
@@ -192,7 +193,7 @@ SOLANA_NETWORK=solana-devnet   # testnet
 npm run agent-sim -- --network=solana-devnet
 ```
 
-Solana enforces the **total budget** (via SPL `delegated_amount`) and **revocation** on-chain; expiry is enforced by the backend (SPL delegation has no on-chain time bound). See [`TRUST_BOUNDARY.md`](TRUST_BOUNDARY.md).
+Solana enforces the **total budget** (via SPL `delegated_amount`) and **revocation** on-chain. SPL delegation has no protocol-level time bound, so Saya enforces **expiry** by issuing a **scheduled on-chain `Revoke` at expiry** — the delegation is actively cleared on-chain when the session expires (and any sessions that expired while the process was down are swept on boot), not merely refused at the policy layer. See [`TRUST_BOUNDARY.md`](TRUST_BOUNDARY.md).
 
 ---
 
@@ -208,6 +209,10 @@ Solana enforces the **total budget** (via SPL `delegated_amount`) and **revocati
 2. **Keep it off the open internet** — bind to `127.0.0.1` (the default) and reach it through your proxy.
 3. **Store secrets in a real secret manager** — `CDP_*`, `CDP_WALLET_SECRET`, and `API_TOKEN`.
 4. **Fund deliberately** — the on-chain caps bound the spend; a modest treasury float bounds the blast radius.
+
+### Deployment & scaling
+
+Saya runs as a **single process**: SQLite for storage and an in-process timer for the Solana expiry sweeper. That is the intended shape — one operator, one instance — and it keeps the spend-accounting race-free without external infrastructure. The circuit-breaker counts are DB-backed (not per-process memory), so they stay correct across a restart. To run **multiple instances** behind a load balancer, swap the repository layer (`src/db/`) to Postgres — the whole app talks to repositories, never the driver — and elect a single leader for the expiry sweeper so it doesn't issue duplicate revokes. Until then, run one instance.
 
 ---
 
@@ -232,10 +237,10 @@ dashboard/       token-gated ops UI (static HTML + fetch)
 docs/            verified CDP/x402 research + the contract source snapshot
 ```
 
-**Tech stack:** TypeScript · Node.js · Fastify · [`@coinbase/cdp-sdk`](https://docs.cdp.coinbase.com) · [viem](https://viem.sh) (EVM) · [`@solana/kit`](https://github.com/anza-xyz/kit) (Solana) · `node:sqlite` · Zod · Vitest (48 tests).
+**Tech stack:** TypeScript · Node.js · Fastify · [`@coinbase/cdp-sdk`](https://docs.cdp.coinbase.com) · [viem](https://viem.sh) (EVM) · [`@solana/kit`](https://github.com/anza-xyz/kit) (Solana) · `node:sqlite` · Zod · Vitest (55 tests).
 
 ---
 
-## License & status
+## Status
 
-An MVP reference implementation — working end-to-end on Base and Solana, testnet and mainnet, with 48 passing tests. Contributions and issues welcome.
+A working payment safety layer, deployable today — running end-to-end on Base and Solana, testnet and mainnet, hardened by an adversarial code review, with 55 passing tests. Single-operator by design (see [Deployment & scaling](#deployment--scaling)); it has not had a third-party security audit, so review the [trust boundary](#verifiable-enforcement) before trusting it with significant funds. Contributions and issues welcome.

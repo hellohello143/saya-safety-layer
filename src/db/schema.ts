@@ -62,6 +62,18 @@ CREATE INDEX IF NOT EXISTS idx_audit_agent ON audit_log(agent_id);
 CREATE INDEX IF NOT EXISTS idx_audit_session ON audit_log(session_id);
 CREATE INDEX IF NOT EXISTS idx_audit_decision ON audit_log(decision);
 CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit_log(timestamp);
+
+-- In-flight payment attempts: rows that passed the circuit breaker but haven't
+-- written their terminal audit row yet. The breaker counts these on top of
+-- committed attempts so a concurrent burst can't slip past before rows land.
+-- SQLite-backed (not in-memory) so the count is shared across processes and
+-- survives restart; stale rows are ignored by the breaker's rolling window.
+CREATE TABLE IF NOT EXISTS breaker_inflight (
+  id         TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  started_at INTEGER NOT NULL                                 -- unix seconds
+);
+CREATE INDEX IF NOT EXISTS idx_inflight_session ON breaker_inflight(session_id);
 `;
 
 // Camel-cased row shapes returned by the repositories (SELECTs alias columns).

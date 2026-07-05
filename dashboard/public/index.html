@@ -464,7 +464,7 @@
       function showNetNote() {
         const n = $('network').value || '';
         $('netNote').textContent = n.startsWith('solana')
-          ? 'On Solana, expiry is policy-enforced only — the total budget and revocation are on-chain.'
+          ? 'On Solana, expiry is enforced by a scheduled on-chain revoke at expiry (SPL has no native time bound); the total budget and revocation are on-chain.'
           : '';
       }
       async function loadNetworks() {

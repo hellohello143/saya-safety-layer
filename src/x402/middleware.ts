@@ -96,7 +96,7 @@ async function readBody(res: Response): Promise<unknown> {
 export async function payForResource(req: PayRequest): Promise<PayResult> {
   const session = await sessionRepo.getById(req.sessionId);
   const baseRisk = session?.higherRisk ? ['no_allowlist_session'] : [];
-  let inFlightHeld = false;
+  let inFlightId: string | null = null;
 
   // Always log exactly one audit row per terminal path (spec §2.5). The in-flight
   // release happens AFTER the row commits so the breaker's live count never dips
@@ -118,9 +118,9 @@ export async function payForResource(req: PayRequest): Promise<PayResult> {
       txHash: result.txHash,
       onchainStatus: result.txHash ? 'confirmed' : undefined,
     });
-    if (inFlightHeld && session) {
-      endInFlight(session.id);
-      inFlightHeld = false;
+    if (inFlightId) {
+      endInFlight(inFlightId);
+      inFlightId = null;
     }
     return result;
   };
@@ -149,8 +149,7 @@ export async function payForResource(req: PayRequest): Promise<PayResult> {
     });
   }
   // Passed the breaker: count this attempt as in-flight until its audit row commits.
-  beginInFlight(session.id);
-  inFlightHeld = true;
+  inFlightId = beginInFlight(session.id);
 
   // Liveness + SSRF guard BEFORE any outbound request. Only an active, unexpired
   // session may drive a fetch (the no-payment path returns the body verbatim, so a

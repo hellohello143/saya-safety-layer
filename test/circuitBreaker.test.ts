@@ -6,14 +6,14 @@ vi.mock('../src/cdp/spendPermissions.js', () => ({
 }));
 
 import { getDb } from '../src/db/client.js';
-import { checkBreaker, tripBreaker } from '../src/policy/circuitBreaker.js';
+import { checkBreaker, tripBreaker, beginInFlight, endInFlight } from '../src/policy/circuitBreaker.js';
 import { SessionRepository } from '../src/db/repositories/sessionRepository.js';
 import { recordIntent } from '../src/audit/auditLog.js';
 import { revokeSessionKeyOnchain } from '../src/cdp/spendPermissions.js';
 import type { NewSessionRow } from '../src/db/schema.js';
 
 const repo = new SessionRepository();
-beforeEach(() => getDb().exec('DELETE FROM sessions; DELETE FROM audit_log;'));
+beforeEach(() => getDb().exec('DELETE FROM sessions; DELETE FROM audit_log; DELETE FROM breaker_inflight;'));
 
 async function attempts(sessionId: string, n: number) {
   for (let i = 0; i < n; i++) await recordIntent({ sessionId, agentId: 'a', decision: 'approved' });
@@ -51,6 +51,21 @@ describe('circuit breaker (rolling window over audit attempts)', () => {
     const r = checkBreaker('s1');
     expect(r.tripped).toBe(true);
     expect(r.attemptsInWindow).toBe(10);
+  });
+
+  it('counts in-flight attempts (not yet committed to the audit log) toward the trip', async () => {
+    await attempts('s1', 8); // 8 committed
+    expect(checkBreaker('s1').tripped).toBe(false);
+    // Two concurrent attempts pass the check but haven't written their rows yet.
+    const a = beginInFlight('s1');
+    const b = beginInFlight('s1');
+    const r = checkBreaker('s1');
+    expect(r.attemptsInWindow).toBe(10); // 8 committed + 2 in-flight
+    expect(r.tripped).toBe(true);
+    // Releasing them (their rows would have committed instead) drops the live count.
+    endInFlight(a);
+    endInFlight(b);
+    expect(checkBreaker('s1').attemptsInWindow).toBe(8);
   });
 
   it('tripBreaker suspends, revokes on-chain, and flags for review', async () => {

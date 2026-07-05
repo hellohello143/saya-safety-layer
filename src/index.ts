@@ -117,6 +117,14 @@ async function main() {
     } catch (err) {
       app.log.warn(`Could not resolve Solana accounts on boot: ${(err as Error).message}`);
     }
+
+    // Enforce Solana expiry on-chain: SPL delegation has no time bound, so this
+    // periodically revokes expired Solana sessions on-chain (and sweeps any that
+    // expired while the process was down) rather than relying only on the backend
+    // refusing to sign. See src/solana/expirySweeper.ts.
+    const { startExpirySweeper, EXPIRY_SWEEP_SECONDS } = await import('./solana/expirySweeper.js');
+    startExpirySweeper();
+    app.log.info(`>> Solana expiry sweeper on (every ${EXPIRY_SWEEP_SECONDS}s): expired delegations are revoked on-chain`);
   }
 }
 
