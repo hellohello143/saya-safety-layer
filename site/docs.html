@@ -3,6 +3,9 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="alternate icon" href="/favicon.svg" />
+    <meta name="theme-color" content="#0b0b0d" />
     <title>Saya — Docs</title>
     <meta name="description" content="Documentation for Saya: scoped, on-chain-enforced spending keys for AI agents. Quickstart, configuration, a full API reference, and the trust boundary." />
     <style>
@@ -38,7 +41,7 @@
       /* ---- left rail ---- */
       .rail { position: fixed; top: 0; left: 0; bottom: 0; width: var(--rail); z-index: 100; background: var(--ink); color: var(--paper); border-right: 1px solid var(--line-dk); overflow: hidden; display: flex; transition: width .34s cubic-bezier(.2,.7,.2,1), box-shadow .34s ease; }
       .rail:hover, .rail:focus-within { width: var(--rail-open); box-shadow: 26px 0 70px -34px rgba(0,0,0,.78); }
-      .rail__v { position: absolute; top: 26px; left: 0; right: 0; margin-inline: auto; width: max-content; writing-mode: vertical-rl; text-orientation: upright; letter-spacing: 1px; font-weight: 500; font-size: 15px; color: var(--paper); transition: opacity .18s ease; }
+      .rail__v { position: absolute; top: 64px; left: 0; right: 0; margin-inline: auto; width: max-content; writing-mode: vertical-rl; text-orientation: upright; letter-spacing: 1px; font-weight: 500; font-size: 15px; color: var(--paper); transition: opacity .18s ease; }
       .rail__hint { position: absolute; bottom: 18px; left: 0; right: 0; text-align: center; color: var(--mut-dk); font-size: 15px; transition: opacity .18s ease; }
       .rail:hover .rail__v, .rail:focus-within .rail__v, .rail:hover .rail__hint, .rail:focus-within .rail__hint { opacity: 0; }
       .rail__open { width: var(--rail-open); height: 100%; padding: 26px 22px; box-sizing: border-box; display: flex; flex-direction: column; gap: 22px; opacity: 0; transform: translateX(-8px); pointer-events: none; transition: opacity .3s ease .04s, transform .34s cubic-bezier(.2,.7,.2,1) .04s; }
@@ -51,11 +54,15 @@
       .rail__gh { display: inline-flex; align-items: center; gap: 8px; align-self: flex-start; white-space: nowrap; color: var(--paper); text-decoration: none; font-size: 13px; font-weight: 500; border: 1px solid var(--line-dk); border-radius: 3px; padding: 8px 13px; }
       .rail__gh:hover { border-color: var(--mut-dk); }
       .rail__gh svg { width: 13px; height: 13px; }
+      .rail__mark { position: absolute; top: 20px; left: 0; right: 0; margin-inline: auto; width: 28px; height: 28px; transition: opacity .18s ease; }
+      .rail:hover .rail__mark, .rail:focus-within .rail__mark { opacity: 0; }
+      .rail__brandrow { display: flex; align-items: center; gap: 11px; }
+      .rail__brandrow .m { width: 24px; height: 24px; flex: 0 0 auto; }
       @media (max-width: 760px) {
         body { padding-left: 0; padding-top: 52px; }
         .rail { top: 0; left: 0; right: 0; bottom: auto; width: auto; height: 52px; flex-direction: row; align-items: center; border-right: none; border-bottom: 1px solid var(--line-dk); }
         .rail:hover, .rail:focus-within { width: auto; box-shadow: none; }
-        .rail__v, .rail__hint { display: none; }
+        .rail__v, .rail__hint, .rail__mark { display: none; }
         .rail__open { opacity: 1; transform: none; pointer-events: auto; flex-direction: row; align-items: center; width: 100%; height: 52px; padding: 0 16px; gap: 16px; }
         .rail__links { display: none; }
         .rail__gh { margin-left: auto; align-self: center; padding: 6px 12px; }
@@ -175,10 +182,11 @@
   <body>
     <!-- LEFT RAIL -->
     <nav class="rail" aria-label="Primary">
+      <svg class="rail__mark" viewBox="0 0 100 100" aria-hidden="true"><defs><linearGradient id="rga" x1="16" y1="0" x2="58" y2="0" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#9945ff"/><stop offset="1" stop-color="#14f195"/></linearGradient></defs><rect x="16" y="40" width="42" height="20" rx="6" fill="url(#rga)"/><rect x="64" y="24" width="11" height="52" rx="5.5" fill="#fff"/></svg>
       <span class="rail__v" aria-hidden="true">SAYA</span>
       <span class="rail__hint" aria-hidden="true">»</span>
       <div class="rail__open">
-        <a class="rail__brand" href="index.html">SAYA</a>
+        <span class="rail__brandrow"><svg class="m" viewBox="0 0 100 100" aria-hidden="true"><defs><linearGradient id="rgb" x1="16" y1="0" x2="58" y2="0" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#9945ff"/><stop offset="1" stop-color="#14f195"/></linearGradient></defs><rect x="16" y="40" width="42" height="20" rx="6" fill="url(#rgb)"/><rect x="64" y="24" width="11" height="52" rx="5.5" fill="#fff"/></svg><a class="rail__brand" href="index.html">SAYA</a></span>
         <div class="rail__links">
           <a href="index.html#how">How it works</a>
           <a href="index.html#chains">Chains</a>
