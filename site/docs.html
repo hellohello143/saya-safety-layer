@@ -22,14 +22,13 @@
         --line: #e4e4e2; --line-2: #ececeb; --line-dk: #262630;
         --base: #0052ff; --base-soft: #7aa2ff;
         --sol-purple: #9945ff; --sol-green: #14f195;
-        --rail: 64px; --rail-open: 244px;
         --body-c: #3a3a42;
       }
       * { box-sizing: border-box; }
-      html { scroll-behavior: smooth; }
+      html { scroll-behavior: smooth; scroll-padding-top: 60px; }
       @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
       body {
-        margin: 0; padding-left: var(--rail); font-family: var(--sans);
+        margin: 0; font-family: var(--sans);
         background: var(--paper); color: var(--ink); font-size: 16px; line-height: 1.68;
         -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
       }
@@ -38,35 +37,20 @@
       :focus-visible { outline: 2px solid var(--sol-purple); outline-offset: 3px; }
       .sol-txt { background: linear-gradient(90deg, var(--sol-purple), var(--sol-green)); -webkit-background-clip: text; background-clip: text; color: transparent; }
 
-      /* ---- left rail ---- */
-      .rail { position: fixed; top: 0; left: 0; bottom: 0; width: var(--rail); z-index: 100; background: var(--ink); color: var(--paper); border-right: 1px solid var(--line-dk); overflow: hidden; display: flex; transition: width .34s cubic-bezier(.2,.7,.2,1), box-shadow .34s ease; }
-      .rail:hover, .rail:focus-within { width: var(--rail-open); box-shadow: 26px 0 70px -34px rgba(0,0,0,.78); }
-      .rail__v { position: absolute; top: 64px; left: 0; right: 0; margin-inline: auto; width: max-content; writing-mode: vertical-rl; text-orientation: upright; letter-spacing: 1px; font-weight: 500; font-size: 15px; color: var(--paper); transition: opacity .18s ease; }
-      .rail__hint { position: absolute; bottom: 18px; left: 0; right: 0; text-align: center; color: var(--mut-dk); font-size: 15px; transition: opacity .18s ease; }
-      .rail:hover .rail__v, .rail:focus-within .rail__v, .rail:hover .rail__hint, .rail:focus-within .rail__hint { opacity: 0; }
-      .rail__open { width: var(--rail-open); height: 100%; padding: 26px 22px; box-sizing: border-box; display: flex; flex-direction: column; gap: 22px; opacity: 0; transform: translateX(-8px); pointer-events: none; transition: opacity .3s ease .04s, transform .34s cubic-bezier(.2,.7,.2,1) .04s; }
-      .rail:hover .rail__open, .rail:focus-within .rail__open { opacity: 1; transform: none; pointer-events: auto; }
-      .rail__brand { font-weight: 500; letter-spacing: 0.3em; font-size: 16px; color: var(--paper); text-decoration: none; white-space: nowrap; }
-      .rail__links { display: flex; flex-direction: column; gap: 15px; flex: 1 1 auto; margin-top: 6px; }
-      .rail__links a { color: var(--mut-dk); text-decoration: none; font-size: 14px; white-space: nowrap; width: max-content; }
-      .rail__links a:hover { color: var(--paper); }
-      .rail__links a.on { color: var(--paper); }
-      .rail__gh { display: inline-flex; align-items: center; gap: 8px; align-self: flex-start; white-space: nowrap; color: var(--paper); text-decoration: none; font-size: 13px; font-weight: 500; border: 1px solid var(--line-dk); border-radius: 3px; padding: 8px 13px; }
-      .rail__gh:hover { border-color: var(--mut-dk); }
-      .rail__gh svg { width: 13px; height: 13px; }
-      .rail__mark { position: absolute; top: 26px; left: 0; right: 0; margin-inline: auto; width: 40px; height: 40px; transition: opacity .18s ease; }
-      .rail:hover .rail__mark, .rail:focus-within .rail__mark { opacity: 0; }
-      .rail__brandrow { display: flex; align-items: center; gap: 11px; }
-      .rail__brandrow .m { width: 24px; height: 24px; flex: 0 0 auto; }
-      @media (max-width: 760px) {
-        body { padding-left: 0; padding-top: 52px; }
-        .rail { top: 0; left: 0; right: 0; bottom: auto; width: auto; height: 52px; flex-direction: row; align-items: center; border-right: none; border-bottom: 1px solid var(--line-dk); }
-        .rail:hover, .rail:focus-within { width: auto; box-shadow: none; }
-        .rail__v, .rail__hint, .rail__mark { display: none; }
-        .rail__open { opacity: 1; transform: none; pointer-events: auto; flex-direction: row; align-items: center; width: 100%; height: 52px; padding: 0 16px; gap: 16px; }
-        .rail__links { display: none; }
-        .rail__gh { margin-left: auto; align-self: center; padding: 6px 12px; }
-      }
+      /* top nav — sticky bar */
+      .nav { position: sticky; top: 0; z-index: 100; background: color-mix(in srgb, var(--ink) 86%, transparent); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line-dk); color: var(--paper); }
+      .nav__in { display: flex; align-items: center; gap: 18px; height: 58px; }
+      .nav .brand { display: inline-flex; align-items: center; gap: 10px; margin-right: auto; text-decoration: none; color: var(--paper); }
+      .nav .brand__mark { width: 26px; height: 26px; flex: 0 0 auto; }
+      .nav .brand__name { font-weight: 500; letter-spacing: 0.3em; padding-right: 0.3em; font-size: 15px; color: var(--paper); }
+      .nav a { color: var(--mut-dk); text-decoration: none; font-size: 13px; letter-spacing: 0.02em; }
+      .nav a:hover { color: var(--paper); }
+      .nav a.on { color: var(--paper); }
+      .nav .nav__gh { color: var(--paper); border: 1px solid var(--line-dk); border-radius: 3px; padding: 7px 13px; display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+      .nav .nav__gh:hover { border-color: var(--mut-dk); color: var(--paper); }
+      .nav__gh svg { width: 13px; height: 13px; }
+      .nav .navlink { display: none; }
+      @media (min-width: 760px) { .nav .navlink { display: inline; } }
 
       /* ---- docs shell ---- */
       .wrap { max-width: 1160px; margin-inline: auto; padding-inline: clamp(20px, 5vw, 52px); }
@@ -80,7 +64,7 @@
 
       .toc { display: none; }
       @media (min-width: 960px) {
-        .toc { display: block; align-self: start; position: sticky; top: 30px; max-height: calc(100vh - 60px); overflow-y: auto; padding: 40px 4px 40px 0; }
+        .toc { display: block; align-self: start; position: sticky; top: 84px; max-height: calc(100vh - 108px); overflow-y: auto; padding: 40px 4px 40px 0; }
         .toc__group { margin-top: 22px; }
         .toc__group:first-child { margin-top: 0; }
         .toc__glabel { font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--mut-2); margin: 0 0 10px; font-weight: 600; }
@@ -180,19 +164,18 @@
     </style>
   </head>
   <body>
-    <!-- LEFT RAIL -->
-    <nav class="rail" aria-label="Primary">
-      <svg class="rail__mark" viewBox="0 0 100 100" aria-hidden="true"><defs><linearGradient id="rga" x1="16" y1="0" x2="58" y2="0" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#9945ff"/><stop offset="1" stop-color="#14f195"/></linearGradient></defs><rect x="16" y="40" width="42" height="20" rx="6" fill="url(#rga)"/><rect x="64" y="24" width="11" height="52" rx="5.5" fill="#fff"/></svg>
-      <span class="rail__hint" aria-hidden="true">»</span>
-      <div class="rail__open">
-        <span class="rail__brandrow"><svg class="m" viewBox="0 0 100 100" aria-hidden="true"><defs><linearGradient id="rgb" x1="16" y1="0" x2="58" y2="0" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#9945ff"/><stop offset="1" stop-color="#14f195"/></linearGradient></defs><rect x="16" y="40" width="42" height="20" rx="6" fill="url(#rgb)"/><rect x="64" y="24" width="11" height="52" rx="5.5" fill="#fff"/></svg><a class="rail__brand" href="index.html">SAYA</a></span>
-        <div class="rail__links">
-          <a href="index.html#how">How it works</a>
-          <a href="index.html#chains">Chains</a>
-          <a href="index.html#trust">Trust boundary</a>
-          <a class="on" href="docs.html">Docs</a>
-        </div>
-        <a class="rail__gh" href="https://github.com/hellohello143/saya-safety-layer" target="_blank" rel="noopener">
+    <!-- NAV -->
+    <nav class="nav" aria-label="Primary">
+      <div class="wrap nav__in">
+        <a class="brand" href="index.html">
+          <svg class="brand__mark" viewBox="0 0 100 100" aria-hidden="true"><defs><linearGradient id="navmk" x1="16" y1="0" x2="58" y2="0" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#9945ff"/><stop offset="1" stop-color="#14f195"/></linearGradient></defs><rect x="16" y="40" width="42" height="20" rx="6" fill="url(#navmk)"/><rect x="64" y="24" width="11" height="52" rx="5.5" fill="#fff"/></svg>
+          <span class="brand__name">SAYA</span>
+        </a>
+        <a class="navlink" href="index.html#how">How it works</a>
+        <a class="navlink" href="index.html#chains">Chains</a>
+        <a class="navlink" href="index.html#trust">Trust boundary</a>
+        <a class="navlink on" href="docs.html">Docs</a>
+        <a class="nav__gh" href="https://github.com/hellohello143/saya-safety-layer" target="_blank" rel="noopener">
           GitHub
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>
         </a>
